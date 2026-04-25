@@ -6,29 +6,27 @@
 #include <stdexcept>
 #include <iostream>
 #include <functional>
-#include <initializer_list>
 #include <algorithm>
 #include <numeric>
 #include <string>
 
-template<typename... T>
-concept IndexLike = (std::is_integral_v<T> && ...);
-
 class Tensor {
 private:
-    std::vector<int> shape_;
-    std::vector<int> strides_;
+    std::size_t size_;
+    std::vector<std::size_t> shape_;
+    std::vector<std::size_t> strides_;
     std::vector<float> values_;
     std::vector<float> gradients_;
 public:
-    template<IndexLike... Dims>
-    Tensor(Dims... dims)
-    : shape_{static_cast<int>(dims)...}, strides_(shape_.size(), 1), gradients_(0) {
-        int stride = 1;
+    Tensor() = delete;
+    Tensor(const std::vector<std::size_t>& shape)
+    : shape_(shape), strides_(shape.size(), 1), gradients_(0) {
+        std::size_t stride = 1;
         for (int i = shape_.size() - 1; i >= 0; i--) {
             strides_[i] = stride;
             stride *= shape_[i];
         }
+        size_ = stride;
         values_ = std::vector<float>(strides_[0] * shape_[0], 0.0f);
         gradients_ = std::vector<float>(values_.size(), 0.0f);
         shape_.shrink_to_fit();
@@ -37,32 +35,40 @@ public:
         gradients_.shrink_to_fit();
     }
 
-    template<IndexLike... Indices>
-    float& at(Indices... indices) {
-        if (sizeof...(Indices) != shape_.size()) {
-            throw std::invalid_argument("[Tensor][at] Number of indices must match tensor dimensions");
-        }
-        std::vector<int> indices_vec{static_cast<int>(indices)...};
-        int index = std::inner_product(indices_vec.begin(), indices_vec.end(), strides_.begin(), 0);
-        return values_[index];
+    float& at(const std::vector<std::size_t>& indices) {
+        return values_.at(calculate_index(indices));
     }
 
-    template<IndexLike... Indices>
-    float& grad_at(Indices... indices) {
-        if (sizeof...(Indices) != shape_.size()) {
-            throw std::invalid_argument("[Tensor][grad_at] Number of indices must match tensor dimensions");
-        }
-        std::vector<int> indices_vec{static_cast<int>(indices)...};
-        int index = std::inner_product(indices_vec.begin(), indices_vec.end(), strides_.begin(), 0);
-        return gradients_[index];
+    float& at(std::vector<std::size_t>&& indices) {
+        return values_.at(calculate_index(indices));
     }
 
-    int dim() const {
+    float& grad_at(const std::vector<std::size_t>& indices) {
+        return gradients_.at(calculate_index(indices));
+    }
+
+    float& grad_at(std::vector<std::size_t>&& indices) {
+        return gradients_.at(calculate_index(indices));
+    }
+
+    std::size_t size() const {
+        return size_;
+    }
+
+    std::size_t dim() const {
         return shape_.size();
     }
 
-    const std::vector<int>& shape() const {
+    const std::vector<std::size_t>& shape() const {
         return shape_;
+    }
+
+    const std::vector<float>& values() const {
+        return values_;
+    }
+
+    const std::vector<float>& gradients() const {
+        return gradients_;
     }
 
     std::string to_string() const {
@@ -75,19 +81,22 @@ public:
         }
         result += "],\n\tvalues=";
         int value_index = 0;
-        result += to_string_recursive(values_, shape_, 0, value_index);
+        result += to_string_helper(values_, shape_, 0, value_index);
         result += ",\n\tgradients=";
         int gradient_index = 0;
-        result += to_string_recursive(gradients_, shape_, 0, gradient_index);
+        result += to_string_helper(gradients_, shape_, 0, gradient_index);
         result += "\n)";
         return result;
     }
 
 private:
-    std::string to_string_recursive(const std::vector<float>& data, const std::vector<int>& shape, int dim, int& index) const {
-        if ((std::size_t)dim == shape.size() - 1) {
+    inline std::size_t calculate_index(const std::vector<std::size_t>& indices) const {
+        return std::inner_product(indices.begin(), indices.end(), strides_.begin(), 0);
+    }
+    std::string to_string_helper(const std::vector<float>& data, const std::vector<std::size_t>& shape, std::size_t dim, int& index) const {
+        if (dim == shape.size() - 1) {
             std::string result = "[";
-            for (int i = 0; i < shape[dim]; i++) {
+            for (std::size_t i = 0; i < shape[dim]; i++) {
                 result += std::to_string(data[index++]);
                 if (i < shape[dim] - 1) {
                     result += ", ";
@@ -97,8 +106,8 @@ private:
             return result;
         }
         std::string result = "[";
-        for (int i = 0; i < shape[dim]; i++) {
-            result += to_string_recursive(data, shape, dim + 1, index);
+        for (std::size_t i = 0; i < shape[dim]; i++) {
+            result += to_string_helper(data, shape, dim + 1, index);
             if (i < shape[dim] - 1) {
                 result += ", ";
             }
