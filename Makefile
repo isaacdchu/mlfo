@@ -1,16 +1,12 @@
 CC=g++-15
 FLAGS=-std=c++23 -Wall -Wextra -Wno-unused-parameter -Werror -O2
 BUILD_DIR=build
+TARGETS=*.cpp *.hpp
 
-compile: $(BUILD_DIR)/main
+$(BUILD_DIR)/main: $(TARGETS)
+	$(CC) $(FLAGS) main.cpp -o $(BUILD_DIR)/main
 
-$(BUILD_DIR)/main: $(BUILD_DIR)/main.o
-	$(CC) $(FLAGS) $(BUILD_DIR)/main.o -o $(BUILD_DIR)/main
-
-$(BUILD_DIR)/main.o: main.cpp
-	$(CC) $(FLAGS) -c main.cpp -o $(BUILD_DIR)/main.o
-
-run: compile
+run: $(BUILD_DIR)/main
 	@clear
 	./$(BUILD_DIR)/main
 
