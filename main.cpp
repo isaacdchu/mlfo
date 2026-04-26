@@ -8,10 +8,15 @@
 
 int main() {
     std::vector<std::unique_ptr<Tensor>> inputs;
-    inputs.push_back(std::make_unique<Tensor>(std::vector<std::size_t>{2, 3}, 1.0f));
-    inputs.push_back(std::make_unique<Tensor>(std::vector<std::size_t>{2, 3}, 2.0f));
-    std::unique_ptr<Tensor> c = Operations::add(std::move(inputs));
-    std::cout << c->to_string() << std::endl;
+    inputs.emplace_back(std::make_unique<Tensor>(std::vector<std::size_t>{2, 3}, 1.0f));
+    inputs.emplace_back(std::make_unique<Tensor>(std::vector<std::size_t>{2, 3}, 2.0f));
+    std::unique_ptr<Tensor> c = Operations::add({inputs[0].get(), inputs[1].get()});
+    c->forward();
+    c->set_gradients(std::vector<float>(c->size(), 1.0f));
+    c->backward();
+    std::println("Input 1: {}", inputs[0]->to_string());
+    std::println("Input 2: {}", inputs[1]->to_string());
+    std::println("Output: {}", c->to_string());
     /*
     Model model = Model({
         std::make_unique<DenseLayer>(2, 3),
