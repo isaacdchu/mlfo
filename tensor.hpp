@@ -11,23 +11,29 @@
 #include <string>
 
 class Tensor {
+friend class Operations;
 private:
     std::size_t size_;
     std::vector<std::size_t> shape_;
     std::vector<std::size_t> strides_;
     std::vector<float> values_;
     std::vector<float> gradients_;
+    std::vector<Tensor*> parents_;
+    std::vector<Tensor*> children_;
+    std::function<void()> forward_;
+    std::function<void()> backward_;
 public:
     Tensor() = delete;
-    Tensor(const std::vector<std::size_t>& shape)
-    : shape_(shape), strides_(shape.size(), 1), gradients_(0) {
+
+    Tensor(const std::vector<std::size_t>& shape, float fill_value = 0.0f)
+    : shape_(shape), strides_(shape.size(), 1) {
         std::size_t stride = 1;
         for (int i = shape_.size() - 1; i >= 0; i--) {
             strides_[i] = stride;
             stride *= shape_[i];
         }
         size_ = stride;
-        values_ = std::vector<float>(strides_[0] * shape_[0], 0.0f);
+        values_ = std::vector<float>(strides_[0] * shape_[0], fill_value);
         gradients_ = std::vector<float>(values_.size(), 0.0f);
         shape_.shrink_to_fit();
         strides_.shrink_to_fit();
@@ -35,11 +41,30 @@ public:
         gradients_.shrink_to_fit();
     }
 
-    float& at(const std::vector<std::size_t>& indices) {
-        return values_.at(calculate_index(indices));
+    Tensor(const Tensor& other) = default;
+
+    Tensor(Tensor&& other) noexcept = default;
+
+    void forward() {
+        if (!forward_) {
+            return;
+        }
+        // make parents forward first
+        // TODO
     }
 
-    float& at(std::vector<std::size_t>&& indices) {
+    void backward() {
+        // TODO
+    }
+
+    void set_parents(const std::vector<Tensor*>& parents) {
+        parents_ = parents;
+        for (Tensor* parent : parents) {
+            parent->children_.push_back(this);
+        }
+    }
+
+    float& at(const std::vector<std::size_t>& indices) {
         return values_.at(calculate_index(indices));
     }
 
@@ -47,15 +72,15 @@ public:
         return gradients_.at(calculate_index(indices));
     }
 
-    float& grad_at(std::vector<std::size_t>&& indices) {
-        return gradients_.at(calculate_index(indices));
+    void zero_grad() {
+        std::fill(gradients_.begin(), gradients_.end(), 0.0f);
     }
 
     std::size_t size() const {
         return size_;
     }
 
-    std::size_t dim() const {
+    std::size_t ndim() const {
         return shape_.size();
     }
 
@@ -69,6 +94,14 @@ public:
 
     const std::vector<float>& gradients() const {
         return gradients_;
+    }
+
+    const std::vector<Tensor*>& parents() const {
+        return parents_;
+    }
+
+    const std::vector<Tensor*>& children() const {
+        return children_;
     }
 
     std::string to_string() const {
@@ -90,7 +123,7 @@ public:
     }
 
 private:
-    inline std::size_t calculate_index(const std::vector<std::size_t>& indices) const {
+    std::size_t calculate_index(const std::vector<std::size_t>& indices) const {
         return std::inner_product(indices.begin(), indices.end(), strides_.begin(), 0);
     }
     std::string to_string_helper(const std::vector<float>& data, const std::vector<std::size_t>& shape, std::size_t dim, int& index) const {
@@ -114,6 +147,14 @@ private:
         }
         result += "]";
         return result;
+    }
+public:
+    static Tensor zeros(const std::vector<std::size_t>& shape) {
+        return Tensor(shape, 0.0f);
+    }
+
+    static Tensor ones(const std::vector<std::size_t>& shape) {
+        return Tensor(shape, 1.0f);
     }
 };
 
