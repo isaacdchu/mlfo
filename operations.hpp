@@ -32,63 +32,42 @@ public:
             throw std::runtime_error("[Operations::add] Batch sizes of input tensors do not match");
         }
         const std::size_t batch_size = std::max(a->batch_size(), b->batch_size());
-        auto output = std::make_unique<Tensor>(a->shape(), batch_size, 0.0f);
+        auto output = std::make_unique<Tensor>(a->unbatched_shape(), batch_size, 0.0f);
         output->set_parents({a, b});
-        output->forward_ = [](Tensor *output) {
+        output->forward_ = [](Tensor *output) -> void {
             // update values of output
             Tensor* a = output->parents_[0];
             Tensor* b = output->parents_[1];
-            if (a->batched() == b->batched()) {
-                for (std::size_t i = 0; i < output->size(); i++) {
-                    output->values_[i] = a->values_[i] + b->values_[i];
-                }
-            } else if (a->batched()) {
-                for (std::size_t i = 0; i < output->size(); i++) {
-                    output->values_[i] = a->values_[i] + b->values_[i % b->size()];
-                }
-            } else {
-                for (std::size_t i = 0; i < output->size(); i++) {
-                    output->values_[i] = a->values_[i % a->size()] + b->values_[i];
+            const std::size_t num_batches = std::ranges::max({
+                output->batch_size(),
+                a->batch_size(),
+                b->batch_size(),
+                static_cast<std::size_t>(1)
+            });
+            for (std::size_t batch = 0; batch < num_batches; batch++) {
+                const std::size_t output_base = output->batched() ? batch * output->unbatched_size() : 0;
+                const std::size_t a_base = a->batched() ? batch * a->unbatched_size() : 0;
+                const std::size_t b_base = b->batched() ? batch * b->unbatched_size() : 0;
+                for (std::size_t i = 0; i < output->unbatched_size(); i++) {
+                    output->values_[output_base + i] = a->values_[a_base + i] + b->values_[b_base + i];
                 }
             }
         };
-        output->backward_ = [](Tensor* output) {
+        output->backward_ = [](Tensor* output) -> void {
             // update gradients of parents of output
             Tensor* a = output->parents_[0];
             Tensor* b = output->parents_[1];
-            const std::size_t batch_size = std::max(a->batch_size(), b->batch_size());
-            if (!a->batched() && !b->batched()) {
+            const std::size_t num_batches = std::ranges::max({
+                output->batch_size(),
+                a->batch_size(),
+                b->batch_size(),
+                static_cast<std::size_t>(1)
+            });
+            for (std::size_t batch = 0; batch < num_batches; batch++) {
+                const std::size_t output_base = output->batched() ? batch * output->unbatched_size() : 0;
                 for (std::size_t i = 0; i < output->unbatched_size(); i++) {
-                    a->gradients_[i] += output->gradients_[i];
-                    b->gradients_[i] += output->gradients_[i];
-                }
-            } else if (a->batched() && b->batched()) {
-                for (std::size_t batch = 0; batch < batch_size; batch++) {
-                    std::size_t base = batch * output->unbatched_size();
-                    for (std::size_t i = 0; i < output->unbatched_size(); i++) {
-                        a->gradients_[base + i] += output->gradients_[base + i];
-                        b->gradients_[base + i] += output->gradients_[base + i];
-                    }
-                }
-            } else if (a->batched()) {
-                for (std::size_t batch = 0; batch < batch_size; batch++) {
-                    std::size_t base = batch * output->unbatched_size();
-                    for (std::size_t i = 0; i < output->unbatched_size(); i++) {
-                        a->gradients_[base + i] += output->gradients_[base + i];   
-                    }
-                }
-                for (std::size_t i = 0; i < output->unbatched_size(); i++) {
-                    b->gradients_[i] += output->gradients_[i];
-                }
-            } else if (b->batched()) {
-                for (std::size_t batch = 0; batch < batch_size; batch++) {
-                    std::size_t base = batch * output->unbatched_size();
-                    for (std::size_t i = 0; i < output->unbatched_size(); i++) {
-                        b->gradients_[base + i] += output->gradients_[base + i];
-                    }
-                }
-                for (std::size_t i = 0; i < output->unbatched_size(); i++) {
-                    a->gradients_[i] += output->gradients_[i];
+                    a->gradients_[i] += output->gradients_[output_base + i];
+                    b->gradients_[i] += output->gradients_[output_base + i];
                 }
             }
         };
