@@ -21,8 +21,8 @@ public:
         input_shape.append_range(layers_.front()->input_shape());
         std::vector<std::size_t> output_shape = {1};
         output_shape.append_range(layers_.back()->output_shape());
-        input_ = std::make_unique<Tensor>(input_shape, 0.0f);
-        output_ = std::make_unique<Tensor>(output_shape, 0.0f);
+        input_ = std::make_unique<Tensor>(input_shape, 1, 0.0f);
+        output_ = std::make_unique<Tensor>(output_shape, 1, 0.0f);
     }
 
     void set_input(std::vector<float>&& input_values, std::size_t batch_size) {

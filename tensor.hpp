@@ -13,30 +13,38 @@
 class Tensor {
 friend class Operations;
 private:
+    bool batched_;
     std::size_t size_;
+    std::size_t unbatched_size_;
     std::vector<std::size_t> shape_;
+    std::vector<std::size_t> unbatched_shape_;
     std::vector<std::size_t> strides_;
     std::vector<float> values_;
     std::vector<float> gradients_;
     std::vector<Tensor*> parents_;
     std::vector<Tensor*> children_;
-    std::function<void()> forward_;
-    std::function<void()> backward_;
+    std::function<void(Tensor*)> forward_;
+    std::function<void(Tensor*)> backward_;
 public:
     Tensor() = delete;
 
-    Tensor(const std::vector<std::size_t>& shape, float fill_value = 0.0f) {
-        // shape[0] is the batch size
+    Tensor(const std::vector<std::size_t>& shape, std::size_t batch_size = 0, float fill_value = 0.0f) {
+        // if batch_size is specified, it will be the first dimension of the shape
         if (shape.empty()) {
             throw std::runtime_error("[Tensor::Tensor] Shape cannot be empty");
         }
-        if (shape.size() == 1) {
-            // scalars are represented as 1D tensors with shape [1]
-            shape_ = {shape[0], 1};
+        if (batch_size > 0) {
+            batched_ = true;
+            shape_ = {batch_size};
+            shape_.insert(shape_.end(), shape.begin(), shape.end());
+        } else {
+            batched_ = false;
+            shape_ = shape;
         }
-        shape_ = shape;
+        unbatched_shape_ = shape;
         strides_ = compute_strides(shape_);
         size_ = strides_[0] * shape_[0];
+        unbatched_size_ = size_ / std::max(batch_size, static_cast<std::size_t>(1));
         values_ = std::vector<float>(size_, fill_value);
         shape_.shrink_to_fit();
         strides_.shrink_to_fit();
@@ -54,7 +62,7 @@ public:
         for (Tensor* parent : parents_) {
             parent->forward();
         }
-        forward_();
+        forward_(this);
     }
 
     void backward() {
@@ -66,10 +74,10 @@ public:
         }
         for (Tensor* parent : parents_) {
             if (parent->gradients_.empty()) {
-                parent->gradients_ = std::vector<float>(parent->size_, 0.0f);
+                parent->gradients_ = std::vector<float>(parent->unbatched_size_, 0.0f);
             }
         }
-        backward_();
+        backward_(this);
         // make children backward
         for (Tensor* child : children_) {
             child->backward();
@@ -132,8 +140,19 @@ public:
         return size_;
     }
 
+    std::size_t unbatched_size() const {
+        return unbatched_size_;
+    }
+
     std::size_t batch_size() const {
+        if (!batched_) {
+            return 0;
+        }
         return shape_[0];
+    }
+    
+    bool batched() const {
+        return batched_;
     }
 
     std::size_t ndim() const {
@@ -142,6 +161,10 @@ public:
 
     const std::vector<std::size_t>& shape() const {
         return shape_;
+    }
+
+    const std::vector<std::size_t>& unbatched_shape() const {
+        return unbatched_shape_;
     }
 
     const std::vector<float>& values() const {
