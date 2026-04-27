@@ -136,6 +136,19 @@ public:
         std::fill(gradients_.begin(), gradients_.end(), 0.0f);
     }
 
+    std::vector<std::size_t> expand_index(std::size_t flat_index) const {
+        std::vector<std::size_t> indices(shape_.size(), 0);
+        for (std::size_t i = 0; i < shape_.size(); i++) {
+            indices[i] = flat_index / strides_[i];
+            flat_index %= strides_[i];
+        }
+        return indices;
+    }
+
+    std::size_t flatten_indices(const std::vector<std::size_t>& indices) const {
+        return std::inner_product(indices.begin(), indices.end(), strides_.begin(), 0);
+    }
+
     std::size_t size() const {
         return size_;
     }
