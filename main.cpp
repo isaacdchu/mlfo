@@ -8,20 +8,34 @@
 #include <print>
 
 int main() {
-    std::vector<std::unique_ptr<Tensor>> inputs;
-    inputs.emplace_back(std::make_unique<Tensor>(std::vector<std::size_t>{5, 2, 3}, 0, 1.0f));
-    inputs.emplace_back(std::make_unique<Tensor>(std::vector<std::size_t>{3, 2, 4}, 2, 2.0f));
-    std::unique_ptr<Tensor> c = Operations::matmul(inputs[0].get(), inputs[1].get(), 2);
-    // c is 2, 5, 4
-    std::println("doing forward");
+    auto a = Tensor::factory({2, 2}, 0, 1.0f);
+    auto b = Operations::add(a.get(), a.get());
+    auto c = Operations::matmul(b.get(), a.get());
     c->forward();
+    std::println("After forward:");
+    std::println("a: {}", a->to_string());
+    std::println("b: {}", b->to_string());
+    std::println("c: {}", c->to_string());
     c->set_gradients(std::vector<float>(c->size(), 1.0f));
-    std::println("doing backward");
     c->backward();
-    std::println("After forward and backward:");
-    std::println("Input 1: {}", inputs[0]->to_string());
-    std::println("Input 2: {}", inputs[1]->to_string());
-    std::println("Output: {}", c->to_string());
+    std::println("After backward:");
+    std::println("a: {}", a->to_string());
+    std::println("b: {}", b->to_string());
+    std::println("c: {}", c->to_string());
+    // std::vector<std::unique_ptr<Tensor>> inputs;
+    // inputs.emplace_back(std::make_unique<Tensor>(std::vector<std::size_t>{5, 2, 3}, 0, 1.0f));
+    // inputs.emplace_back(std::make_unique<Tensor>(std::vector<std::size_t>{3, 2, 4}, 2, 2.0f));
+    // std::unique_ptr<Tensor> c = Operations::matmul(inputs[0].get(), inputs[1].get(), 2);
+    // // c is 2, 5, 4
+    // std::println("doing forward");
+    // c->forward();
+    // c->set_gradients(std::vector<float>(c->size(), 1.0f));
+    // std::println("doing backward");
+    // c->backward();
+    // std::println("After forward and backward:");
+    // std::println("Input 1: {}", inputs[0]->to_string());
+    // std::println("Input 2: {}", inputs[1]->to_string());
+    // std::println("Output: {}", c->to_string());
     /*
     Model model = Model({
         std::make_unique<DenseLayer>(2, 3),

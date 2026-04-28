@@ -25,6 +25,8 @@ private:
     std::vector<Tensor*> children_;
     std::function<void(Tensor*)> forward_;
     std::function<void(Tensor*)> backward_;
+    bool forward_dirty_;
+    bool backward_dirty_;
 public:
     Tensor() = delete;
 
@@ -48,6 +50,8 @@ public:
         values_ = std::vector<float>(size_, fill_value);
         shape_.shrink_to_fit();
         strides_.shrink_to_fit();
+        forward_dirty_ = true;
+        backward_dirty_ = true;
     }
 
     Tensor(const Tensor& other) = default;
@@ -55,18 +59,21 @@ public:
     Tensor(Tensor&& other) noexcept = default;
 
     void forward() {
-        if (!forward_) {
+        if (!forward_ || !forward_dirty_) {
             return;
         }
         // make parents forward first
         for (Tensor* parent : parents_) {
             parent->forward();
         }
-        forward_(this);
+        if (forward_dirty_) {
+            forward_(this);
+            forward_dirty_ = false;
+        }
     }
 
     void backward() {
-        if (!backward_) {
+        if (!backward_ || !backward_dirty_) {
             return;
         }
         if (gradients_.empty()) {
@@ -77,10 +84,13 @@ public:
                 parent->gradients_ = std::vector<float>(parent->size_, 0.0f);
             }
         }
-        backward_(this);
-        // make children backward
-        for (Tensor* child : children_) {
-            child->backward();
+        if (backward_dirty_) {
+            backward_(this);
+            backward_dirty_ = false;
+        }
+        // make parents backward
+        for (Tensor* parent : parents_) {
+            parent->backward();
         }
     }
 
@@ -107,6 +117,14 @@ public:
         size_ = size_ / shape_[0] * batch_size;
         strides_[0] = size_ / batch_size;
         shape_[0] = batch_size;
+        // all successors are forward dirty
+        std::vector<Tensor*> stack = children_;
+        while (!stack.empty()) {
+            Tensor* current = stack.back();
+            stack.pop_back();
+            current->forward_dirty_ = true;
+            stack.append_range(current->children_);
+        }
     }
 
     void set_gradients(std::vector<float>&& gradients) {
@@ -114,6 +132,14 @@ public:
             throw std::runtime_error("[Tensor::set_gradients] Gradients size does not match tensor size");
         }
         gradients_ = std::move(gradients);
+        // all predecessors are backward dirty
+        std::vector<Tensor*> stack = parents_;
+        while (!stack.empty()) {
+            Tensor* current = stack.back();
+            stack.pop_back();
+            current->backward_dirty_ = true;
+            stack.append_range(current->parents_);
+        }
     }
 
     float at(const std::vector<std::size_t>& indices) const {
@@ -217,6 +243,24 @@ public:
         result += to_string_helper(gradients_, shape_, 0, gradient_index);
         result += "\n)";
         return result;
+    }
+
+    static std::unique_ptr<Tensor> from_values(
+        const std::vector<float>& values,
+        const std::vector<std::size_t>& shape,
+        std::size_t batch_size = 0
+    ) {
+        auto tensor = std::make_unique<Tensor>(shape, batch_size);
+        tensor->set_values(std::vector<float>(values), batch_size);
+        return tensor;
+    }
+
+    static std::unique_ptr<Tensor> factory(
+        const std::vector<std::size_t>& shape,
+        std::size_t batch_size = 0,
+        float fill_value = 0.0f
+    ) {
+        return std::make_unique<Tensor>(shape, batch_size, fill_value);
     }
 
 private:

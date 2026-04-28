@@ -8,9 +8,8 @@
 #include <iostream>
 #include <print>
 
-class Operations {
-private:
-    static void print_vector(const std::vector<std::size_t>& vec) {
+
+static void print_vector(const std::vector<std::size_t>& vec) {
         std::print("[");
         for (size_t i = 0; i < vec.size(); i++) {
             std::print("{}", vec[i]);
@@ -21,17 +20,23 @@ private:
         std::println("]");
         std::flush(std::cout);
     }
-    static bool unbatched_shapes_equal(const std::vector<Tensor*>& tensors) {
-        if (tensors.empty()) {
-            return true;
-        }
-        std::vector<std::size_t> ref_shape = tensors.front()->unbatched_shape();
-        for (const auto& tensor : tensors) {
-            if (tensor->unbatched_shape() != ref_shape) {
-                return false;
-            }
-        }
+static bool unbatched_shapes_equal(const std::vector<Tensor*>& tensors) {
+    if (tensors.empty()) {
         return true;
+    }
+    std::vector<std::size_t> ref_shape = tensors.front()->unbatched_shape();
+    for (const auto& tensor : tensors) {
+        if (tensor->unbatched_shape() != ref_shape) {
+            return false;
+        }
+    }
+    return true;
+}
+
+class Operations {
+private:
+    static void matmul_helper() {
+        // TODO: implement matmul helper function that can be used for both forward and backward pass of matmul
     }
 public:
     Operations() = delete;
