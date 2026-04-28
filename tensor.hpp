@@ -36,7 +36,7 @@ public:
         if (batch_size > 0) {
             batched_ = true;
             shape_ = {batch_size};
-            shape_.insert(shape_.end(), shape.begin(), shape.end());
+            shape_.append_range(shape);
         } else {
             batched_ = false;
             shape_ = shape;
@@ -74,7 +74,7 @@ public:
         }
         for (Tensor* parent : parents_) {
             if (parent->gradients_.empty()) {
-                parent->gradients_ = std::vector<float>(parent->unbatched_size_, 0.0f);
+                parent->gradients_ = std::vector<float>(parent->size_, 0.0f);
             }
         }
         backward_(this);
