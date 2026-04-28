@@ -169,7 +169,7 @@ public:
     }
 
     std::size_t ndim() const {
-        return shape_.size();
+        return unbatched_shape_.size();
     }
 
     const std::vector<std::size_t>& shape() const {
@@ -204,7 +204,8 @@ public:
                 result += ", ";
             }
         }
-        result += "],\n\tvalues=";
+        result += "],\n\tbatches=" + std::to_string(batch_size());
+        result += ",\n\tvalues=";
         int value_index = 0;
         result += to_string_helper(values_, shape_, 0, value_index);
         if (gradients_.empty()) {
