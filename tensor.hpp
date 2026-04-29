@@ -35,6 +35,11 @@ public:
         if (shape.empty()) {
             throw std::runtime_error("[Tensor::Tensor] Shape cannot be empty");
         }
+        for (std::size_t dim : shape) {
+            if (dim == 0) {
+                throw std::runtime_error("[Tensor::Tensor] Shape dimensions cannot be zero");
+            }
+        }
         if (batch_size > 0) {
             batched_ = true;
             shape_ = {batch_size};
@@ -116,9 +121,17 @@ public:
             throw std::runtime_error("[Tensor::set_values] Batch size cannot be zero");
         }
         values_ = std::move(values);
-        size_ = size_ / shape_[0] * batch_size;
-        strides_[0] = size_ / batch_size;
-        shape_[0] = batch_size;
+        if (batched_) {
+            // replace batch dimension and recompute sizes/strides accordingly
+            size_ = unbatched_size_ * batch_size;
+            shape_[0] = batch_size;
+            strides_ = compute_strides(shape_);
+        } else {
+            // unbatched tensor: values replace the whole tensor
+            size_ = values_.size();
+            unbatched_size_ = size_;
+            strides_ = compute_strides(shape_);
+        }
         // all successors are forward dirty
         std::vector<Tensor*> stack = children_;
         while (!stack.empty()) {
@@ -253,7 +266,11 @@ public:
         std::size_t batch_size = 0
     ) {
         auto tensor = std::make_unique<Tensor>(shape, batch_size);
-        tensor->set_values(std::vector<float>(values), batch_size);
+        if (batch_size == 0) {
+            tensor->set_values(std::vector<float>(values));
+        } else {
+            tensor->set_values(std::vector<float>(values), batch_size);
+        }
         return tensor;
     }
 
