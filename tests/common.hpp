@@ -1,4 +1,6 @@
-#pragma once
+#ifndef TESTS_COMMON_HPP
+#define TESTS_COMMON_HPP
+
 #include <iostream>
 #include <cmath>
 #include <string>
@@ -14,3 +16,5 @@ static inline void assert_true(bool cond, const std::string& msg) {
 static inline bool nearf(float a, float b, float eps=1e-4f) {
     return std::fabs(a - b) <= eps;
 }
+
+#endif // TESTS_COMMON_HPP

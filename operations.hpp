@@ -134,21 +134,25 @@ public:
             const auto& a_shape = a->unbatched_shape();
             const auto& b_shape = b->unbatched_shape();
             std::size_t a_rows = 1;
-            for (std::size_t i = 0; i < a_shape.size() - contractions; ++i) a_rows *= a_shape[i];
+            for (std::size_t i = 0; i < a_shape.size() - contractions; i++) {
+                a_rows *= a_shape[i];
+            }
             std::size_t shared_k = 1;
-            for (std::size_t i = a_shape.size() - contractions; i < a_shape.size(); ++i) shared_k *= a_shape[i];
+            for (std::size_t i = a_shape.size() - contractions; i < a_shape.size(); i++) {
+                shared_k *= a_shape[i];
+            }
             std::size_t b_cols = 1;
-            for (std::size_t i = contractions; i < b_shape.size(); ++i) b_cols *= b_shape[i];
-
-            for (std::size_t batch = 0; batch < num_batches; ++batch) {
+            for (std::size_t i = contractions; i < b_shape.size(); i++) {
+                b_cols *= b_shape[i];
+            }
+            for (std::size_t batch = 0; batch < num_batches; batch++) {
                 const std::size_t out_base = output->batched() ? batch * output->unbatched_size() : 0;
                 const std::size_t a_base = a->batched() ? batch * a->unbatched_size() : 0;
                 const std::size_t b_base = b->batched() ? batch * b->unbatched_size() : 0;
-
-                for (std::size_t r = 0; r < a_rows; ++r) {
-                    for (std::size_t c = 0; c < b_cols; ++c) {
+                for (std::size_t r = 0; r < a_rows; r++) {
+                    for (std::size_t c = 0; c < b_cols; c++) {
                         float sum = 0.0f;
-                        for (std::size_t k = 0; k < shared_k; ++k) {
+                        for (std::size_t k = 0; k < shared_k; k++) {
                             const std::size_t a_index = a_base + r * shared_k + k;
                             const std::size_t b_index = b_base + k * b_cols + c;
                             sum += a->values()[a_index] * b->values()[b_index];
@@ -163,17 +167,21 @@ public:
             Tensor* a = output->parents_[0];
             Tensor* b = output->parents_[1];
             const std::size_t num_batches = std::max(output->batch_size(), static_cast<std::size_t>(1));
-
             const auto& a_shape = a->unbatched_shape();
             const auto& b_shape = b->unbatched_shape();
             std::size_t a_rows = 1;
-            for (std::size_t i = 0; i < a_shape.size() - contractions; ++i) a_rows *= a_shape[i];
+            for (std::size_t i = 0; i < a_shape.size() - contractions; i++) {
+                a_rows *= a_shape[i];
+            }
             std::size_t shared_k = 1;
-            for (std::size_t i = a_shape.size() - contractions; i < a_shape.size(); ++i) shared_k *= a_shape[i];
+            for (std::size_t i = a_shape.size() - contractions; i < a_shape.size(); i++) {
+                shared_k *= a_shape[i];
+            }
             std::size_t b_cols = 1;
-            for (std::size_t i = contractions; i < b_shape.size(); ++i) b_cols *= b_shape[i];
-
-            for (std::size_t batch = 0; batch < num_batches; ++batch) {
+            for (std::size_t i = contractions; i < b_shape.size(); i++) {
+                b_cols *= b_shape[i];
+            }
+            for (std::size_t batch = 0; batch < num_batches; batch++) {
                 const std::size_t out_base = output->batched() ? batch * output->unbatched_size() : 0;
                 const std::size_t a_base = a->batched() ? batch * a->unbatched_size() : 0;
                 const std::size_t b_base = b->batched() ? batch * b->unbatched_size() : 0;
@@ -183,10 +191,10 @@ public:
                 if (b->gradients().empty()) b->gradients_ = std::vector<float>(b->size(), 0.0f);
 
                 // dA = dC @ B^T
-                for (std::size_t r = 0; r < a_rows; ++r) {
-                    for (std::size_t k = 0; k < shared_k; ++k) {
+                for (std::size_t r = 0; r < a_rows; r++) {
+                    for (std::size_t k = 0; k < shared_k; k++) {
                         float sum = 0.0f;
-                        for (std::size_t c = 0; c < b_cols; ++c) {
+                        for (std::size_t c = 0; c < b_cols; c++) {
                             const std::size_t out_index = out_base + r * b_cols + c;
                             const std::size_t b_index = b_base + k * b_cols + c;
                             sum += output->gradients_[out_index] * b->values()[b_index];
@@ -197,10 +205,10 @@ public:
                 }
 
                 // dB = A^T @ dC
-                for (std::size_t k = 0; k < shared_k; ++k) {
-                    for (std::size_t c = 0; c < b_cols; ++c) {
+                for (std::size_t k = 0; k < shared_k; k++) {
+                    for (std::size_t c = 0; c < b_cols; c++) {
                         float sum = 0.0f;
-                        for (std::size_t r = 0; r < a_rows; ++r) {
+                        for (std::size_t r = 0; r < a_rows; r++) {
                             const std::size_t a_index = a_base + r * shared_k + k;
                             const std::size_t out_index = out_base + r * b_cols + c;
                             sum += a->values()[a_index] * output->gradients_[out_index];
