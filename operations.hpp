@@ -119,6 +119,9 @@ public:
             b->unbatched_shape().begin() + contractions,
             b->unbatched_shape().end()
         );
+        if (output_unbatched_shape.empty()) {
+            output_unbatched_shape.push_back(1);
+        }
         const std::size_t batch_size = std::max({a->batch_size(), b->batch_size()});
         std::unique_ptr<Tensor> output = std::make_unique<Tensor>(output_unbatched_shape, batch_size, 0.0f);
         output->set_parents({a, b});
@@ -217,7 +220,7 @@ public:
             const std::size_t output_start_index = output->batched() ? 1 : 0;
             const std::size_t a_start_index = a->batched() ? 1 : 0;
             const std::size_t b_start_index = b->batched() ? 1 : 0;
-            std::cout << "part a gradients" << std::endl;
+            // std::cout << "part a gradients" << std::endl;
             // a_gradients = dL/da = sum over non-contracted dimensions (dL/doutput * B)
             for (std::size_t batch = 0; batch < num_batches; batch++) {
                 // perform output = dL/doutput * B for the current batch
@@ -255,6 +258,9 @@ public:
                         gradient += output->grad_at(output_indices) * b->at(b_indices);
                         // std::cout << "a2" << std::endl;
                         // calculate next combination of non-contracted indices
+                        if (b_start_index + contractions >= b_indices.size()) {
+                            break;
+                        }
                         b_indices[b_start_index + contractions]++;
                         for (std::size_t dim = b_start_index + contractions; dim < b_indices.size(); dim++) {
                             if (b_indices[dim] < b->shape()[dim]) {
@@ -273,8 +279,9 @@ public:
                             break;
                         }
                         // output_indices are non-contracted a_indices and b_indices
-                        for (std::size_t dim = b_start_index + contractions; dim < b->shape().size(); dim++) {
-                            output_indices[dim] = b_indices[dim];
+                        for (std::size_t dim = 0; dim < b_indices.size() - b_start_index - contractions; dim++) {
+                            const std::size_t index = output_start_index + a_indices.size() - contractions - a_start_index + dim;
+                            output_indices[index] = b_indices[b_start_index + contractions + dim];
                         }
                     }
                     a->grad_at(a_indices) += gradient;
@@ -296,7 +303,7 @@ public:
                     }
                 }
             }
-            std::cout << "part b gradients" << std::endl;
+            // std::cout << "part b gradients" << std::endl;
             // b_gradients = dL/db = sum over batches of sum over non-contracted dimensions (A * dL/doutput)
             for (std::size_t batch = 0; batch < num_batches; batch++) {
                 // perform output = dL/doutput * B for the current batch
@@ -319,7 +326,8 @@ public:
                         a_indices[a_indices.size() - 1 - i] = b_indices[b_start_index + i];
                     }
                     for (std::size_t i = 0; i < b_indices.size() - b_start_index - contractions; i++) {
-                        output_indices[output_start_index + i] = b_indices[b_start_index + contractions + i];
+                        const std::size_t index = output_start_index + a_indices.size() - contractions - a_start_index + i;
+                        output_indices[index] = b_indices[b_start_index + contractions + i];
                     }
                     // calculate dL/db at the current indices
                     // dL/db[b_indices] = sum(a[a_indices] * dL/doutput[output_indices])
@@ -327,16 +335,20 @@ public:
                     float gradient = 0.0f;
                     // iterate through all combinations of contracted indices
                     while (true) {
-                        // print out a_indices and output_indices
+                        // print out all indices
                         // std::cout << "b1" << std::endl;
                         // print_vector(a_indices);
+                        // print_vector(b_indices);
                         // print_vector(output_indices);
                         gradient += a->at(a_indices) * output->grad_at(output_indices);
                         // std::cout << "b2" << std::endl;
                         // calculate next combination of non-contracted indices
-                        const std::size_t start_index = a->batched() ? 1 : 0;
-                        a_indices[start_index]++;
-                        for (std::size_t dim = start_index; dim < a_indices.size() - contractions; dim++) {
+                        a_indices[a_start_index]++;
+                        if (a_indices[a_start_index] >= a->shape()[a_start_index]) {
+                            a_indices[a_start_index] = 0;
+                            break;
+                        }
+                        for (std::size_t dim = a_start_index; dim < a_indices.size() - contractions; dim++) {
                             if (a_indices[dim] < a->shape()[dim]) {
                                 // no need to carry to the next dimension
                                 break;
@@ -353,7 +365,7 @@ public:
                             break;
                         }
                         // output_indices are non-contracted a_indices and b_indices
-                        for (std::size_t dim = start_index; dim < a_indices.size() - contractions; dim++) {
+                        for (std::size_t dim = a_start_index; dim < a_indices.size() - contractions; dim++) {
                             output_indices[output_start_index + dim] = a_indices[dim];
                         }
                     }

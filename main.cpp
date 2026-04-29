@@ -8,9 +8,9 @@
 #include <print>
 
 int main() {
-    auto a = Tensor::factory({2, 2}, 0, 1.0f);
-    auto b = Operations::add(a.get(), a.get());
-    auto c = Operations::matmul(b.get(), a.get());
+    auto a = Tensor::factory({4, 3, 2}, 0, 1.0f);
+    auto b = Tensor::factory({2, 3}, 0, 2.0f);
+    auto c = Operations::matmul(a.get(), b.get(), 1);
     c->forward();
     std::println("After forward:");
     std::println("a: {}", a->to_string());

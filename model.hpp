@@ -3,6 +3,7 @@
 
 #include "tensor.hpp"
 #include "layer.hpp"
+#include "loss.hpp"
 
 #include <vector>
 #include <memory>
@@ -10,48 +11,57 @@
 class Model {
 private:
     std::vector<std::unique_ptr<Layer>> layers_;
-    std::unique_ptr<Tensor> input_;
-    std::unique_ptr<Tensor> output_;
+    std::unique_ptr<Loss> loss_;
+    std::vector<std::unique_ptr<Tensor>> inputs_;
 public:
     Model() = delete;
 
-    Model(std::vector<std::unique_ptr<Layer>>&& layers)
-    : layers_(std::move(layers)) {
-        std::vector<std::size_t> input_shape = {1};
-        input_shape.append_range(layers_.front()->input_shape());
-        std::vector<std::size_t> output_shape = {1};
-        output_shape.append_range(layers_.back()->output_shape());
-        input_ = std::make_unique<Tensor>(input_shape, 1, 0.0f);
-        output_ = std::make_unique<Tensor>(output_shape, 1, 0.0f);
-    }
-
-    void set_input(std::vector<float>&& input_values, std::size_t batch_size) {
-        if (input_->size() * batch_size != input_values.size() * input_->batch_size()) {
-            throw std::runtime_error("[Model::set_input] Input shape does not match model input shape");
+    Model(std::vector<std::unique_ptr<Layer>>&& layers, std::unique_ptr<Loss> loss)
+    : layers_(std::move(layers)), loss_(std::move(loss)) {
+        if (layers_.empty()) {
+            throw std::runtime_error("[Model::Model] Model must have at least one layer");
         }
-        input_->set_values(std::move(input_values), batch_size);
+        for (std::size_t i = 0; i < layers_.size() - 1; i++) {
+            if (layers_[i]->output_unbatched_shapes() != layers_[i + 1]->input_unbatched_shapes()) {
+                throw std::runtime_error(
+                    "[Model::Model] Output shape of layer " +
+                    std::to_string(i) +
+                    " does not match input shape of layer " +
+                    std::to_string(i + 1)
+                );
+            }
+        }
+        for (const auto& shape : layers_.front()->input_unbatched_shapes()) {
+            inputs_.emplace_back(std::make_unique<Tensor>(shape, 1));
+        }
     }
 
-    const std::vector<std::size_t>& input_shape() const {
-        return input_->shape();
+    void set_inputs(std::vector<std::vector<float>>&& input_values, std::size_t batch_size) {
+        for (std::size_t i = 0; i < inputs_.size(); i++) {
+            inputs_[i]->set_values(std::move(input_values[i]), batch_size);
+        }
     }
 
-    const std::vector<std::size_t>& output_shape() const {
-        return output_->shape();
+    const std::vector<std::vector<std::size_t>>& input_unbatched_shapes() const {
+        return layers_.front()->input_unbatched_shapes();
     }
 
-    std::unique_ptr<Tensor> forward(std::unique_ptr<Tensor> input) {
+    const std::vector<std::vector<std::size_t>>& output_unbatched_shapes() const {
+        return layers_.back()->output_unbatched_shapes();
+    }
+
+    void forward() {
         for (const auto& layer : layers_) {
-            input = layer->forward(std::move(input));
+            layer->forward();
         }
-        return input;
+        loss_->forward();
     }
 
-    std::unique_ptr<Tensor> backward(std::unique_ptr<Tensor> grad_output) {
-        for (auto it = layers_.rbegin(); it != layers_.rend(); ++it) {
-            grad_output = (*it)->backward(std::move(grad_output));
+    void backward() {
+        loss_->backward();
+        for (auto it = layers_.rbegin(); it != layers_.rend(); it++) {
+            (*it)->backward();
         }
-        return grad_output;
     }
 };
 

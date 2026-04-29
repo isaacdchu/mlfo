@@ -52,6 +52,8 @@ public:
         strides_.shrink_to_fit();
         forward_dirty_ = true;
         backward_dirty_ = true;
+        forward_ = nullptr;
+        backward_ = nullptr;
     }
 
     Tensor(const Tensor& other) = default;
