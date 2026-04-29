@@ -116,4 +116,70 @@ void run_operations_tests() {
         assert_true(Y->gradients().size() == Y->size(), "Y has gradients after chained backward");
         assert_true(Z->gradients().size() == Z->size(), "Z has gradients after chained backward");
     }
+
+    // contractions > 1: both tensors fully contracted -> scalar output
+    {
+        auto A = Tensor::from_values({1,2,3,4,5,6}, {2,3}); // flattened length 6
+        auto B = Tensor::from_values({6,5,4,3,2,1}, {3,2});
+        auto C = Operations::matmul(A.get(), B.get(), 2); // contractions == 2 (fully contract both)
+        C->forward();
+        // expected scalar is dot of flattened arrays
+        float expected = 0.0f;
+        for (std::size_t i = 0; i < A->size(); ++i) expected += A->values()[i] * B->values()[i];
+        assert_true(C->size() == 1, "fully-contracted matmul produces scalar output");
+        assert_true(nearf(C->values()[0], expected), "fully-contracted forward value correct");
+        // backward: set grad to 2 and expect a_grad = 2 * B, b_grad = 2 * A
+        C->set_gradients(std::vector<float>(1, 2.0f));
+        C->backward();
+        for (std::size_t i = 0; i < A->size(); ++i) {
+            assert_true(nearf(A->gradients()[i], 2.0f * B->values()[i]), "fully-contracted backward a_grad correct");
+            assert_true(nearf(B->gradients()[i], 2.0f * A->values()[i]), "fully-contracted backward b_grad correct");
+        }
+    }
+
+    // contractions > 1: A fully contracted, B has extra trailing dims -> vector output
+    {
+        auto A = Tensor::from_values({1,2,3,4,5,6}, {2,3}); // flattened len 6
+        // B shape: first two dims match A's contracted dims, plus a trailing dim of 2 => unbatched [2,3,2]
+        auto B = Tensor::from_values({1,2, 3,4, 5,6, 7,8, 9,10, 11,12}, {3,2,2}); // 12 elements
+        auto C = Operations::matmul(A.get(), B.get(), 2);
+        C->forward();
+        // expected size equals product of B's trailing dims = 2
+        assert_true(C->size() == 2, "A fully-contracted produces vector output size");
+        // compute expected values: for each c in 0..b_cols-1 sum_k A[k] * B[k*b_cols + c]
+        std::size_t b_cols = 2;
+        for (std::size_t c = 0; c < b_cols; ++c) {
+            float sum = 0.0f;
+            for (std::size_t k = 0; k < A->size(); ++k) {
+                sum += A->values()[k] * B->values()[k * b_cols + c];
+            }
+            assert_true(nearf(C->values()[c], sum), "A-fully-contracted forward produces expected element");
+        }
+    }
+
+    // contractions > 1: general case producing a matrix (a_rows x b_cols)
+    {
+        // A unbatched shape [2,3,2] -> a_rows = 2, shared_k = 3*2 =6
+        auto A = Tensor::from_values({1,2,3,4,5,6, 7,8,9,10,11,12}, {2,3,2}); // 12 elems
+        // B unbatched shape [2,3,4] -> matches contracted dims ordering expected by matmul
+        auto B = Tensor::from_values({1,2,3,4, 5,6,7,8, 9,10,11,12, 13,14,15,16, 17,18,19,20, 21,22,23,24}, {2,3,4}); // 24 elems
+        auto C = Operations::matmul(A.get(), B.get(), 2);
+        C->forward();
+        // compute expected using flattened-matrix formulation
+        std::size_t a_rows = 2;
+        std::size_t shared_k = 6;
+        std::size_t b_cols = 4;
+        for (std::size_t r = 0; r < a_rows; ++r) {
+            for (std::size_t c = 0; c < b_cols; ++c) {
+                float sum = 0.0f;
+                for (std::size_t k = 0; k < shared_k; ++k) {
+                    std::size_t a_index = r * shared_k + k;
+                    std::size_t b_index = k * b_cols + c;
+                    sum += A->values()[a_index] * B->values()[b_index];
+                }
+                std::size_t out_index = r * b_cols + c;
+                assert_true(nearf(C->values()[out_index], sum), "contractions>1 general forward element correct");
+            }
+        }
+    }
 }
