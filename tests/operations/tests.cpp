@@ -182,4 +182,58 @@ void run_operations_tests() {
             }
         }
     }
+
+    // repeated-usage chain: b = a + a; c = b + b; d = c + a; verify values and gradients
+    {
+        auto a = Tensor::from_values({1.0f, 2.0f, 3.0f, 4.0f}, {2,2});
+        auto b = Operations::add(a.get(), a.get());
+        auto c = Operations::add(b.get(), b.get());
+        auto d = Operations::add(c.get(), a.get());
+        d->forward();
+        // expected d = 5 * a (since b=2a, c=4a, d=4a + a =5a)
+        for (std::size_t i = 0; i < a->size(); ++i) {
+            assert_true(nearf(d->values()[i], 5.0f * a->values()[i]), "repeated chain forward produces 5*a");
+        }
+        d->set_gradients(std::vector<float>(d->size(), 1.0f));
+        d->backward();
+        // after backward, a->gradients should equal 5 for each element
+        for (std::size_t i = 0; i < a->size(); ++i) {
+            assert_true(nearf(a->gradients()[i], 5.0f), "repeated chain backward accumulates correct gradient into a");
+        }
+    }
+
+    // same-tensor matmul: A @ A, check forward and precise backward accumulation
+    {
+        auto A = Tensor::from_values({1.0f,2.0f,3.0f,4.0f}, {2,2}); // [[1,2],[3,4]]
+        auto C = Operations::matmul(A.get(), A.get(), 1);
+        C->forward();
+        std::vector<float> expectedC = {7.0f,10.0f,15.0f,22.0f};
+        for (std::size_t i = 0; i < C->size(); ++i) {
+            assert_true(nearf(C->values()[i], expectedC[i]), "matmul same-tensor forward correct");
+        }
+        C->set_gradients(std::vector<float>(C->size(), 1.0f));
+        C->backward();
+        // expected gradients computed by implementation ordering => [7,11,9,13]
+        std::vector<float> expectedGrad = {7.0f,11.0f,9.0f,13.0f};
+        for (std::size_t i = 0; i < A->size(); ++i) {
+            assert_true(nearf(A->gradients()[i], expectedGrad[i]), "matmul same-tensor backward accumulates correct gradients");
+        }
+    }
+
+    // add then matmul using same tensor: B = A + A; C = B @ A -> forward should equal 2*(A@A)
+    {
+        auto A = Tensor::from_values({1.0f,2.0f,3.0f,4.0f}, {2,2});
+        auto B = Operations::add(A.get(), A.get());
+        auto C = Operations::matmul(B.get(), A.get(), 1);
+        C->forward();
+        // compute A@A and compare C to 2 * that
+        std::vector<float> base = {7.0f,10.0f,15.0f,22.0f};
+        for (std::size_t i = 0; i < C->size(); ++i) {
+            assert_true(nearf(C->values()[i], 2.0f * base[i]), "add-then-matmul forward matches 2*(A@A)");
+        }
+        C->set_gradients(std::vector<float>(C->size(), 1.0f));
+        C->backward();
+        // ensure A has gradients (size and non-empty)
+        assert_true(A->gradients().size() == A->size(), "A has gradients after add-then-matmul backward");
+    }
 }

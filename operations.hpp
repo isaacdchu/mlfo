@@ -155,7 +155,7 @@ public:
                         for (std::size_t k = 0; k < shared_k; k++) {
                             const std::size_t a_index = a_base + r * shared_k + k;
                             const std::size_t b_index = b_base + k * b_cols + c;
-                            sum += a->values()[a_index] * b->values()[b_index];
+                            sum += a->values_[a_index] * b->values_[b_index];
                         }
                         const std::size_t out_index = out_base + r * b_cols + c;
                         output->values_[out_index] = sum;
@@ -197,7 +197,7 @@ public:
                         for (std::size_t c = 0; c < b_cols; c++) {
                             const std::size_t out_index = out_base + r * b_cols + c;
                             const std::size_t b_index = b_base + k * b_cols + c;
-                            sum += output->gradients_[out_index] * b->values()[b_index];
+                            sum += output->gradients_[out_index] * b->values_[b_index];
                         }
                         const std::size_t a_index = a_base + r * shared_k + k;
                         a->gradients_[a_index] += sum;
@@ -211,7 +211,7 @@ public:
                         for (std::size_t r = 0; r < a_rows; r++) {
                             const std::size_t a_index = a_base + r * shared_k + k;
                             const std::size_t out_index = out_base + r * b_cols + c;
-                            sum += a->values()[a_index] * output->gradients_[out_index];
+                            sum += a->values_[a_index] * output->gradients_[out_index];
                         }
                         const std::size_t b_index = b_base + k * b_cols + c;
                         b->gradients_[b_index] += sum;
