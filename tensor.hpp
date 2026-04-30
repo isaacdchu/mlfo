@@ -10,9 +10,13 @@
 #include <numeric>
 #include <string>
 
+class Pool;
+
 class Tensor {
 friend class Operations;
+friend class Pool;
 private:
+    Pool* pool_;
     bool batched_;
     std::size_t size_;
     std::size_t unbatched_size_;
@@ -27,9 +31,8 @@ private:
     std::function<void(Tensor*)> backward_;
     bool forward_dirty_;
     bool backward_dirty_;
-public:
-    Tensor() = delete;
 
+public:
     Tensor(const std::vector<std::size_t>& shape, std::size_t batch_size = 0, float fill_value = 0.0f) {
         // if batch_size is specified, it will be the first dimension of the shape
         if (shape.empty()) {
@@ -60,6 +63,8 @@ public:
         forward_ = nullptr;
         backward_ = nullptr;
     }
+
+    Tensor() = delete;
 
     Tensor(const Tensor& other) = default;
 
@@ -258,20 +263,6 @@ public:
         result += to_string_helper(gradients_, shape_, 0, gradient_index);
         result += "\n)";
         return result;
-    }
-
-    static std::unique_ptr<Tensor> from_values(
-        const std::vector<float>& values,
-        const std::vector<std::size_t>& shape,
-        std::size_t batch_size = 0
-    ) {
-        auto tensor = std::make_unique<Tensor>(shape, batch_size);
-        if (batch_size == 0) {
-            tensor->set_values(std::vector<float>(values));
-        } else {
-            tensor->set_values(std::vector<float>(values), batch_size);
-        }
-        return tensor;
     }
 
     static std::unique_ptr<Tensor> factory(

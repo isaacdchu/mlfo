@@ -2,6 +2,7 @@
 #define LAYER_HPP
 
 #include "tensor.hpp"
+#include "pool.hpp"
 
 #include <memory>
 #include <vector>
@@ -13,9 +14,7 @@ protected:
     const std::vector<std::vector<std::size_t>> output_unbatched_shapes_;
     std::vector<Tensor*> inputs_;
     std::vector<std::unique_ptr<Tensor>> outputs_;
-public:
-    Layer() = delete;
-
+    Pool* pool_;
     Layer(
         const std::vector<std::vector<std::size_t>>& input_unbatched_shapes,
         const std::vector<std::vector<std::size_t>>& output_unbatched_shapes,
@@ -24,10 +23,11 @@ public:
     input_unbatched_shapes_(input_unbatched_shapes),
     output_unbatched_shapes_(output_unbatched_shapes),
     inputs_(inputs) {
-        for (const auto& shape : output_unbatched_shapes_) {
-            outputs_.emplace_back(std::make_unique<Tensor>(shape, 1));
-        }
+        // 
     }
+
+public:
+    Layer() = delete;
 
     virtual const std::vector<std::unique_ptr<Tensor>>& outputs() const final {
         return outputs_;

@@ -2,37 +2,69 @@
 #define MODEL_HPP
 
 #include "tensor.hpp"
+#include "pool.hpp"
 #include "layer.hpp"
 #include "loss.hpp"
 
 #include <vector>
 #include <memory>
+#include <functional>
+#include <stdexcept>
 
 class Model {
 private:
     std::vector<std::unique_ptr<Layer>> layers_;
     std::unique_ptr<Loss> loss_;
     std::vector<std::unique_ptr<Tensor>> inputs_;
+    std::unique_ptr<Pool> pool_;
 public:
     Model() = delete;
 
-    Model(std::vector<std::unique_ptr<Layer>>&& layers, std::unique_ptr<Loss> loss)
-    : layers_(std::move(layers)), loss_(std::move(loss)) {
-        if (layers_.empty()) {
+    Model (
+        const std::vector<
+            std::function<
+            std::unique_ptr<Layer>(
+                const std::vector<std::vector<std::size_t>>& input_unbatched_shapes,
+                const std::vector<std::vector<std::size_t>>& output_unbatched_shapes,
+                const std::vector<Tensor*>& inputs,
+                Pool* pool
+            )>
+        >& layer_factories,
+        const std::vector<std::vector<std::vector<std::size_t>>>& all_input_unbatched_shapes,
+        const std::vector<std::vector<std::vector<std::size_t>>>& all_output_unbatched_shapes
+    ) {
+        if (layer_factories.empty()) {
             throw std::runtime_error("[Model::Model] Model must have at least one layer");
         }
-        for (std::size_t i = 0; i < layers_.size() - 1; i++) {
-            if (layers_[i]->output_unbatched_shapes() != layers_[i + 1]->input_unbatched_shapes()) {
-                throw std::runtime_error(
-                    "[Model::Model] Output shape of layer " +
-                    std::to_string(i) +
-                    " does not match input shape of layer " +
-                    std::to_string(i + 1)
-                );
-            }
+        if (all_input_unbatched_shapes.size() != layer_factories.size() ||
+            all_output_unbatched_shapes.size() != layer_factories.size()) {
+            throw std::runtime_error("[Model::Model] Size of input and output shape lists must match number of layers");
         }
-        for (const auto& shape : layers_.front()->input_unbatched_shapes()) {
+        pool_ = std::make_unique<Pool>();
+        for (const auto& shape : all_input_unbatched_shapes.front()) {
             inputs_.emplace_back(std::make_unique<Tensor>(shape, 1));
+        }
+        std::vector<Tensor*> input_ptrs;
+        for (auto& input : inputs_) {
+            input_ptrs.push_back(input.get());
+        }
+        layers_.emplace_back(layer_factories[0](
+            all_input_unbatched_shapes[0],
+            all_output_unbatched_shapes[0],
+            input_ptrs,
+            pool_.get()
+        ));
+        for (std::size_t i = 1; i < layer_factories.size(); i++) {
+            std::vector<Tensor*> prev_output_ptrs;
+            for (const auto& output : layers_[i - 1]->outputs()) {
+                prev_output_ptrs.push_back(output.get());
+            }
+            layers_.emplace_back(layer_factories[i](
+                all_input_unbatched_shapes[i],
+                all_output_unbatched_shapes[i],
+                prev_output_ptrs,
+                pool_.get()
+            ));
         }
     }
 

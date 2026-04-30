@@ -2,12 +2,12 @@
 #define OPERATIONS_HPP
 
 #include "tensor.hpp"
+#include "pool.hpp"
 
 #include <vector>
 #include <memory>
 #include <iostream>
 #include <print>
-
 
 static void print_vector(const std::vector<std::size_t>& vec) {
         std::print("[");
@@ -20,6 +20,7 @@ static void print_vector(const std::vector<std::size_t>& vec) {
         std::println("]");
         std::flush(std::cout);
     }
+
 static bool unbatched_shapes_equal(const std::vector<Tensor*>& tensors) {
     if (tensors.empty()) {
         return true;
@@ -38,18 +39,29 @@ private:
     static void matmul_helper() {
         // TODO: implement matmul helper function that can be used for both forward and backward pass of matmul
     }
+
+    static bool same_pool(Tensor* a, Tensor* b) {
+        if (!a->pool_ || !b->pool_) {
+            throw std::runtime_error("[Operations::same_pool] Both tensors must have an associated pool");
+        }
+        return a->pool_->id() == b->pool_->id();
+    }
+
 public:
     Operations() = delete;
 
-    static std::unique_ptr<Tensor> add(Tensor* a, Tensor* b) {
+    static Tensor* add(Tensor* a, Tensor* b) {
         if (!unbatched_shapes_equal({a, b})) {
             throw std::runtime_error("[Operations::add] Unbatched shapes of input tensors do not match");
         }
         if (a->batched() && b->batched() && (a->batch_size() != b->batch_size())) {
             throw std::runtime_error("[Operations::add] Batch sizes of input tensors do not match");
         }
+        if (!same_pool(a, b)) {
+            throw std::runtime_error("[Operations::add] Input tensors must be from the same pool");
+        }
         const std::size_t batch_size = std::max(a->batch_size(), b->batch_size());
-        auto output = std::make_unique<Tensor>(a->unbatched_shape(), batch_size, 0.0f);
+        auto output = a->pool_->new_tensor(a->unbatched_shape(), batch_size, 0.0f);
         output->set_parents({a, b});
         output->forward_ = [](Tensor *output) -> void {
             // update values of output
@@ -93,8 +105,8 @@ public:
         return output;
     }
 
-    static std::unique_ptr<Tensor> matmul(Tensor* a, Tensor* b, std::size_t contractions = 1) {
-        if (contractions == 0) {
+    static Tensor* matmul(Tensor* a, Tensor* b, std::size_t contractions = 1) {
+         if (contractions == 0) {
             throw std::runtime_error("[Operations::matmul] Contractions must be greater than zero");
         }
         if (a->batched() && b->batched() && (a->batch_size() != b->batch_size())) {
@@ -107,6 +119,9 @@ public:
             if (a->unbatched_shape()[a->unbatched_shape().size() - 1 - i] != b->unbatched_shape()[i]) {
                 throw std::runtime_error("[Operations::matmul] Contracted dimensions do not match");
             }
+        }
+        if (!same_pool(a, b)) {
+            throw std::runtime_error("[Operations::matmul] Input tensors must be from the same pool");
         }
         std::vector<std::size_t> output_unbatched_shape;
         output_unbatched_shape.insert(
@@ -123,7 +138,7 @@ public:
             output_unbatched_shape.push_back(1);
         }
         const std::size_t batch_size = std::max({a->batch_size(), b->batch_size()});
-        std::unique_ptr<Tensor> output = std::make_unique<Tensor>(output_unbatched_shape, batch_size, 0.0f);
+        Tensor* output = a->pool_->new_tensor(output_unbatched_shape, batch_size, 0.0f);
         output->set_parents({a, b});
         output->forward_ = [contractions](Tensor* output) -> void {
             Tensor* a = output->parents_[0];

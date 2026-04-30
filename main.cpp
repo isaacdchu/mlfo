@@ -1,5 +1,6 @@
 #include "tensor.hpp"
 #include "operations.hpp"
+#include "pool.hpp"
 
 #include <vector>
 #include <memory>
@@ -8,34 +9,27 @@
 #include <print>
 
 int main() {
-    auto a = Tensor::factory({3, 2}, 0, 1.0f);
-    auto b = Tensor::factory({2, 3}, 0, 2.0f);
-    auto c = Operations::matmul(a.get(), b.get(), 2);
-    c->forward();
+    Pool pool;
+    auto a = pool.new_tensor({2, 2}, 0, 1.0f);
+    auto b = pool.new_tensor({2, 2}, 0, 2.0f);
+    auto c = pool.new_tensor({2, 2}, 0, 3.0f);
+    auto d = Operations::add(
+        Operations::add(a, b), // 3s
+        Operations::add(b, c)  // 5s
+    );
+    d->forward();
     std::println("After forward:");
     std::println("a: {}", a->to_string());
     std::println("b: {}", b->to_string());
     std::println("c: {}", c->to_string());
-    c->set_gradients(std::vector<float>(c->size(), 1.0f));
-    c->backward();
+    std::println("d: {}", d->to_string());
+    d->set_gradients(std::vector<float>(d->size(), 1.0f));
+    d->backward();
     std::println("After backward:");
     std::println("a: {}", a->to_string());
     std::println("b: {}", b->to_string());
     std::println("c: {}", c->to_string());
-    // std::vector<std::unique_ptr<Tensor>> inputs;
-    // inputs.emplace_back(std::make_unique<Tensor>(std::vector<std::size_t>{5, 2, 3}, 0, 1.0f));
-    // inputs.emplace_back(std::make_unique<Tensor>(std::vector<std::size_t>{3, 2, 4}, 2, 2.0f));
-    // std::unique_ptr<Tensor> c = Operations::matmul(inputs[0].get(), inputs[1].get(), 2);
-    // // c is 2, 5, 4
-    // std::println("doing forward");
-    // c->forward();
-    // c->set_gradients(std::vector<float>(c->size(), 1.0f));
-    // std::println("doing backward");
-    // c->backward();
-    // std::println("After forward and backward:");
-    // std::println("Input 1: {}", inputs[0]->to_string());
-    // std::println("Input 2: {}", inputs[1]->to_string());
-    // std::println("Output: {}", c->to_string());
+    std::println("d: {}", d->to_string());
     /*
     Model model = Model({
         std::make_unique<DenseLayer>(2, 3),

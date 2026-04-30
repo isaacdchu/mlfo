@@ -4,12 +4,15 @@
 
 void run_operations_tests() {
     std::cout << "Running operations tests..." << std::endl;
+    Pool pool;
 
     // add forward/backward
     {
-        auto a = Tensor::from_values({1.0f, 2.0f, 3.0f, 4.0f}, {2,2});
-        auto b = Tensor::from_values({5.0f, 6.0f, 7.0f, 8.0f}, {2,2});
-        auto out = Operations::add(a.get(), b.get());
+        auto a = pool.new_tensor(std::vector<std::size_t>{2,2}, 0);
+        a->set_values(std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f});
+        auto b = pool.new_tensor(std::vector<std::size_t>{2,2}, 0);
+        b->set_values(std::vector<float>{5.0f, 6.0f, 7.0f, 8.0f});
+        auto out = Operations::add(a, b);
         out->forward();
         std::vector<float> expected = {6.0f, 8.0f, 10.0f, 12.0f};
         for (std::size_t i = 0; i < out->size(); ++i) {
@@ -25,9 +28,11 @@ void run_operations_tests() {
 
     // matmul forward/backward
     {
-        auto A = Tensor::from_values({1,2,3,4,5,6}, {2,3});
-        auto B = Tensor::from_values({7,8,9,10,11,12}, {3,2});
-        auto C = Operations::matmul(A.get(), B.get(), 1);
+        auto A = pool.new_tensor(std::vector<std::size_t>{2,3}, 0);
+        A->set_values(std::vector<float>{1,2,3,4,5,6});
+        auto B = pool.new_tensor(std::vector<std::size_t>{3,2}, 0);
+        B->set_values(std::vector<float>{7,8,9,10,11,12});
+        auto C = Operations::matmul(A, B, 1);
         C->forward();
         std::vector<float> expectedC = {58.0f, 64.0f, 139.0f, 154.0f};
         assert_true(C->size() == expectedC.size(), "matmul output size as expected");
@@ -48,9 +53,11 @@ void run_operations_tests() {
 
     // edge case: 1D vector dot (contraction produces scalar-like output)
     {
-        auto v1 = Tensor::from_values({1.0f, 2.0f, 3.0f}, {3});
-        auto v2 = Tensor::from_values({4.0f, -1.0f, 0.5f}, {3});
-        auto dot = Operations::matmul(v1.get(), v2.get(), 1);
+        auto v1 = pool.new_tensor(std::vector<std::size_t>{3}, 0);
+        v1->set_values(std::vector<float>{1.0f, 2.0f, 3.0f});
+        auto v2 = pool.new_tensor(std::vector<std::size_t>{3}, 0);
+        v2->set_values(std::vector<float>{4.0f, -1.0f, 0.5f});
+        auto dot = Operations::matmul(v1, v2, 1);
         dot->forward();
         // expected dot = 1*4 + 2*(-1) + 3*0.5 = 4 -2 +1.5 = 3.5
         assert_true(dot->size() == 1, "dot produces scalar-like output");
@@ -65,9 +72,11 @@ void run_operations_tests() {
 
     // edge case: negative and zero values in add
     {
-        auto a = Tensor::from_values({-1.0f, 0.0f, 2.5f}, {3});
-        auto b = Tensor::from_values({1.0f, 0.0f, -2.5f}, {3});
-        auto s = Operations::add(a.get(), b.get());
+        auto a = pool.new_tensor(std::vector<std::size_t>{3}, 0);
+        a->set_values(std::vector<float>{-1.0f, 0.0f, 2.5f});
+        auto b = pool.new_tensor(std::vector<std::size_t>{3}, 0);
+        b->set_values(std::vector<float>{1.0f, 0.0f, -2.5f});
+        auto s = Operations::add(a, b);
         s->forward();
         for (std::size_t i = 0; i < s->size(); ++i) {
             assert_true(nearf(s->values()[i], 0.0f), "add with negatives and zeros produces zeros");
@@ -83,14 +92,15 @@ void run_operations_tests() {
     // batched matmul with broadcasting B (unbatched) across batches of A
     {
         // A: batch=2, unbatched 2x2 -> total size 8
-        auto A = std::make_unique<Tensor>(std::vector<std::size_t>{2,2}, 2);
+        auto A = pool.new_tensor(std::vector<std::size_t>{2,2}, 2);
         // fill A with distinct values per batch
         std::vector<float> Avals = {1,2,3,4, 5,6,7,8};
         A->set_values(std::move(Avals), 2);
         // B: unbatched 2x2
-        auto B = Tensor::from_values({1.0f, 0.0f, 0.0f, 1.0f}, {2,2});
+        auto B = pool.new_tensor(std::vector<std::size_t>{2,2}, 0);
+        B->set_values(std::vector<float>{1.0f, 0.0f, 0.0f, 1.0f});
         // compute C = A @ B (contract 1)
-        auto C = Operations::matmul(A.get(), B.get(), 1);
+        auto C = Operations::matmul(A, B, 1);
         C->forward();
         // basic sanity: values accessible and finite
         for (float v : C->values()) {
@@ -103,11 +113,14 @@ void run_operations_tests() {
 
     // chained ops: D = add(X,Y); E = matmul(D, Z); verify gradients flow to X,Y,Z
     {
-        auto X = Tensor::from_values({1.0f,2.0f,3.0f,4.0f}, {2,2});
-        auto Y = Tensor::from_values({0.5f, -1.0f, 2.0f, 0.0f}, {2,2});
-        auto Z = Tensor::from_values({1.0f,0.0f,0.0f,1.0f}, {2,2});
-        auto D = Operations::add(X.get(), Y.get());
-        auto E = Operations::matmul(D.get(), Z.get(), 1);
+        auto X = pool.new_tensor(std::vector<std::size_t>{2,2}, 0);
+        X->set_values(std::vector<float>{1.0f,2.0f,3.0f,4.0f});
+        auto Y = pool.new_tensor(std::vector<std::size_t>{2,2}, 0);
+        Y->set_values(std::vector<float>{0.5f, -1.0f, 2.0f, 0.0f});
+        auto Z = pool.new_tensor(std::vector<std::size_t>{2,2}, 0);
+        Z->set_values(std::vector<float>{1.0f,0.0f,0.0f,1.0f});
+        auto D = Operations::add(X, Y);
+        auto E = Operations::matmul(D, Z, 1);
         E->forward();
         E->set_gradients(std::vector<float>(E->size(), 1.0f));
         E->backward();
@@ -119,9 +132,11 @@ void run_operations_tests() {
 
     // contractions > 1: both tensors fully contracted -> scalar output
     {
-        auto A = Tensor::from_values({1,2,3,4,5,6}, {2,3}); // flattened length 6
-        auto B = Tensor::from_values({6,5,4,3,2,1}, {3,2});
-        auto C = Operations::matmul(A.get(), B.get(), 2); // contractions == 2 (fully contract both)
+        auto A = pool.new_tensor(std::vector<std::size_t>{2,3}, 0); // flattened length 6
+        A->set_values(std::vector<float>{1,2,3,4,5,6});
+        auto B = pool.new_tensor(std::vector<std::size_t>{3,2}, 0);
+        B->set_values(std::vector<float>{6,5,4,3,2,1});
+        auto C = Operations::matmul(A, B, 2); // contractions == 2 (fully contract both)
         C->forward();
         // expected scalar is dot of flattened arrays
         float expected = 0.0f;
@@ -139,10 +154,12 @@ void run_operations_tests() {
 
     // contractions > 1: A fully contracted, B has extra trailing dims -> vector output
     {
-        auto A = Tensor::from_values({1,2,3,4,5,6}, {2,3}); // flattened len 6
+        auto A = pool.new_tensor(std::vector<std::size_t>{2,3}, 0); // flattened len 6
+        A->set_values(std::vector<float>{1,2,3,4,5,6});
         // B shape: first two dims match A's contracted dims, plus a trailing dim of 2 => unbatched [2,3,2]
-        auto B = Tensor::from_values({1,2, 3,4, 5,6, 7,8, 9,10, 11,12}, {3,2,2}); // 12 elements
-        auto C = Operations::matmul(A.get(), B.get(), 2);
+        auto B = pool.new_tensor(std::vector<std::size_t>{3,2,2}, 0); // 12 elements
+        B->set_values(std::vector<float>{1,2, 3,4, 5,6, 7,8, 9,10, 11,12});
+        auto C = Operations::matmul(A, B, 2);
         C->forward();
         // expected size equals product of B's trailing dims = 2
         assert_true(C->size() == 2, "A fully-contracted produces vector output size");
@@ -160,10 +177,12 @@ void run_operations_tests() {
     // contractions > 1: general case producing a matrix (a_rows x b_cols)
     {
         // A unbatched shape [2,3,2] -> a_rows = 2, shared_k = 3*2 =6
-        auto A = Tensor::from_values({1,2,3,4,5,6, 7,8,9,10,11,12}, {2,3,2}); // 12 elems
+        auto A = pool.new_tensor(std::vector<std::size_t>{2,3,2}, 0); // 12 elems
+        A->set_values(std::vector<float>{1,2,3,4,5,6, 7,8,9,10,11,12});
         // B unbatched shape [2,3,4] -> matches contracted dims ordering expected by matmul
-        auto B = Tensor::from_values({1,2,3,4, 5,6,7,8, 9,10,11,12, 13,14,15,16, 17,18,19,20, 21,22,23,24}, {2,3,4}); // 24 elems
-        auto C = Operations::matmul(A.get(), B.get(), 2);
+        auto B = pool.new_tensor(std::vector<std::size_t>{2,3,4}, 0); // 24 elems
+        B->set_values(std::vector<float>{1,2,3,4, 5,6,7,8, 9,10,11,12, 13,14,15,16, 17,18,19,20, 21,22,23,24});
+        auto C = Operations::matmul(A, B, 2);
         C->forward();
         // compute expected using flattened-matrix formulation
         std::size_t a_rows = 2;
@@ -185,10 +204,11 @@ void run_operations_tests() {
 
     // repeated-usage chain: b = a + a; c = b + b; d = c + a; verify values and gradients
     {
-        auto a = Tensor::from_values({1.0f, 2.0f, 3.0f, 4.0f}, {2,2});
-        auto b = Operations::add(a.get(), a.get());
-        auto c = Operations::add(b.get(), b.get());
-        auto d = Operations::add(c.get(), a.get());
+        auto a = pool.new_tensor(std::vector<std::size_t>{2,2}, 0);
+        a->set_values(std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f});
+        auto b = Operations::add(a, a);
+        auto c = Operations::add(b, b);
+        auto d = Operations::add(c, a);
         d->forward();
         // expected d = 5 * a (since b=2a, c=4a, d=4a + a =5a)
         for (std::size_t i = 0; i < a->size(); ++i) {
@@ -204,8 +224,9 @@ void run_operations_tests() {
 
     // same-tensor matmul: A @ A, check forward and precise backward accumulation
     {
-        auto A = Tensor::from_values({1.0f,2.0f,3.0f,4.0f}, {2,2}); // [[1,2],[3,4]]
-        auto C = Operations::matmul(A.get(), A.get(), 1);
+        auto A = pool.new_tensor(std::vector<std::size_t>{2,2}, 0); // [[1,2],[3,4]]
+        A->set_values(std::vector<float>{1.0f,2.0f,3.0f,4.0f});
+        auto C = Operations::matmul(A, A, 1);
         C->forward();
         std::vector<float> expectedC = {7.0f,10.0f,15.0f,22.0f};
         for (std::size_t i = 0; i < C->size(); ++i) {
@@ -222,9 +243,10 @@ void run_operations_tests() {
 
     // add then matmul using same tensor: B = A + A; C = B @ A -> forward should equal 2*(A@A)
     {
-        auto A = Tensor::from_values({1.0f,2.0f,3.0f,4.0f}, {2,2});
-        auto B = Operations::add(A.get(), A.get());
-        auto C = Operations::matmul(B.get(), A.get(), 1);
+        auto A = pool.new_tensor(std::vector<std::size_t>{2,2}, 0);
+        A->set_values(std::vector<float>{1.0f,2.0f,3.0f,4.0f});
+        auto B = Operations::add(A, A);
+        auto C = Operations::matmul(B, A, 1);
         C->forward();
         // compute A@A and compare C to 2 * that
         std::vector<float> base = {7.0f,10.0f,15.0f,22.0f};
