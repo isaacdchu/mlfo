@@ -9,33 +9,48 @@
 class Loss {
 protected:
     const std::vector<std::vector<std::size_t>> input_unbatched_shapes_;
-    const std::vector<std::vector<std::size_t>> output_unbatched_shapes_;
     std::vector<Tensor*> inputs_;
-    std::unique_ptr<Tensor> output_;
-public:
+    std::vector<Tensor*> targets_;
+    Tensor* output_;
+    Pool* pool_;
+
     Loss() = delete;
 
     Loss(
         const std::vector<std::vector<std::size_t>>& input_unbatched_shapes,
-        const std::vector<std::size_t>& output_unbatched_shape,
-        const std::vector<Tensor*>& inputs
+        const std::vector<Tensor*>& inputs,
+        const std::vector<Tensor*>& targets,
+        Pool* pool
     ) :
-    inputs_(inputs),
     input_unbatched_shapes_(input_unbatched_shapes),
-    output_unbatched_shapes_(std::vector<std::vector<std::size_t>>(1, output_unbatched_shape)) {
-        output_ = std::make_unique<Tensor>(output_unbatched_shape, 1);
+    inputs_(inputs),
+    targets_(targets) {
+        if (inputs.size() != targets.size()) {
+            throw std::runtime_error("[Loss::Loss] Number of input tensors must match number of target tensors");
+        }
+        for (std::size_t i = 0; i < inputs.size(); i++) {
+            if (inputs[i]->unbatched_shape() != targets[i]->unbatched_shape()) {
+                throw std::runtime_error("[Loss::Loss] Unbatched shape of input tensor must match unbatched shape of target tensor");
+            }
+        }
+        if (!pool) {
+            throw std::runtime_error("[Loss::Loss] Pool cannot be null");
+        }
+        pool_ = pool;
     }
 
+public:
     virtual const std::vector<std::vector<std::size_t>>& input_unbatched_shapes() const final {
         return input_unbatched_shapes_;
     }
 
-    virtual const std::vector<std::vector<std::size_t>>& output_unbatched_shapes() const final {
-        return output_unbatched_shapes_;
+    void forward() {
+        output_->forward();
     }
 
-    virtual void forward() = 0;
-    virtual void backward() = 0;
+    void backward() {
+        output_->backward();
+    }
 };
 
 #endif // LOSS_HPP

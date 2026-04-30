@@ -13,23 +13,36 @@ protected:
     const std::vector<std::vector<std::size_t>> input_unbatched_shapes_;
     const std::vector<std::vector<std::size_t>> output_unbatched_shapes_;
     std::vector<Tensor*> inputs_;
-    std::vector<std::unique_ptr<Tensor>> outputs_;
+    std::vector<Tensor*> outputs_;
     Pool* pool_;
+
     Layer(
         const std::vector<std::vector<std::size_t>>& input_unbatched_shapes,
         const std::vector<std::vector<std::size_t>>& output_unbatched_shapes,
-        const std::vector<Tensor*>& inputs
+        const std::vector<Tensor*>& inputs,
+        Pool* pool
     ) :
     input_unbatched_shapes_(input_unbatched_shapes),
     output_unbatched_shapes_(output_unbatched_shapes),
-    inputs_(inputs) {
-        // 
+    inputs_(inputs),
+    pool_(pool) {
+        if (inputs.size() != input_unbatched_shapes.size()) {
+            throw std::runtime_error("[Layer::Layer] Number of input tensors must match number of input unbatched shapes");
+        }
+        for (std::size_t i = 0; i < inputs.size(); i++) {
+            if (inputs[i]->unbatched_shape() != input_unbatched_shapes[i]) {
+                throw std::runtime_error("[Layer::Layer] Unbatched shape of input tensor must match corresponding input unbatched shape");
+            }
+        }
+        if (!pool) {
+            throw std::runtime_error("[Layer::Layer] Pool cannot be null");
+        }
     }
 
 public:
     Layer() = delete;
 
-    virtual const std::vector<std::unique_ptr<Tensor>>& outputs() const final {
+    virtual const std::vector<Tensor*>& outputs() const final {
         return outputs_;
     }
 
@@ -41,8 +54,17 @@ public:
         return output_unbatched_shapes_;
     }
 
-    virtual void forward() = 0;
-    virtual void backward() = 0;
+    void forward() {
+        for (auto& output : outputs_) {
+            output->forward();
+        }
+    }
+
+    void backward() {
+        for (auto& output : outputs_) {
+            output->backward();
+        }
+    }
 };
 
 #endif // LAYER_HPP

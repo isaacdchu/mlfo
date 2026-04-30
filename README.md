@@ -2,8 +2,4 @@
 Attempt 2 at making a machine learning framework
 
 Todo:
-- model class connects layers
-- layers can chain their outputs to other layers' inputs
-- linear layer
-- who owns tensor objects
-- chained operations
+- more operations (subtraction, elementwise product, power, ...)

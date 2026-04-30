@@ -121,22 +121,26 @@ public:
         }
     }
 
-    void set_values(std::vector<float>&& values, std::size_t batch_size = 1) {
-        if (batch_size == 0) {
-            throw std::runtime_error("[Tensor::set_values] Batch size cannot be zero");
+    void set_values(std::vector<float>&& values, std::size_t batch_size = 0) {
+        if (!batched_ && batch_size > 0) {
+            // unbatched -> batched
+            batched_ = true;
+            shape_.insert(shape_.begin(), batch_size);
+            strides_ = compute_strides(shape_);
+            size_ = strides_[0] * shape_[0];
+            unbatched_size_ = size_ / batch_size;
+        } else if (batched_ && batch_size == 0) {
+            // batched -> unbatched
+            batched_ = false;
+            shape_.erase(shape_.begin());
+            strides_ = compute_strides(shape_);
+            size_ = strides_[0] * shape_[0];
+            unbatched_size_ = size_;
+        }
+        if (values.size() != size_) {
+            throw std::runtime_error("[Tensor::set_values] Values size does not match tensor size");
         }
         values_ = std::move(values);
-        if (batched_) {
-            // replace batch dimension and recompute sizes/strides accordingly
-            size_ = unbatched_size_ * batch_size;
-            shape_[0] = batch_size;
-            strides_ = compute_strides(shape_);
-        } else {
-            // unbatched tensor: values replace the whole tensor
-            size_ = values_.size();
-            unbatched_size_ = size_;
-            strides_ = compute_strides(shape_);
-        }
         // all successors are forward dirty
         std::vector<Tensor*> stack = children_;
         while (!stack.empty()) {

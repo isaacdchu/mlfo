@@ -12,12 +12,20 @@ private:
     std::vector<Tensor*> weights_;
     std::vector<Tensor*> biases_;
 
+public:
+    LinearLayer() = delete;
+
     LinearLayer(
         const std::vector<std::vector<std::size_t>>& input_unbatched_shapes,
         const std::vector<std::vector<std::size_t>>& output_unbatched_shapes,
-        const std::vector<Tensor*>& inputs
-    ) : Layer(input_unbatched_shapes, output_unbatched_shapes, inputs) {
+        const std::vector<Tensor*>& inputs,
+        Pool* pool
+    ) : Layer(input_unbatched_shapes, output_unbatched_shapes, inputs, pool) {
         std::vector<std::size_t> num_shared_dims = std::vector<std::size_t>(input_unbatched_shapes.size(), 0);
+        const std::size_t n = input_unbatched_shapes.size();
+        weights_ = std::vector<Tensor*>(n, nullptr);
+        biases_ = std::vector<Tensor*>(n, nullptr);
+        outputs_.resize(n);
         for (std::size_t i = 0; i < input_unbatched_shapes.size(); i++) {
             const auto& in_shape = input_unbatched_shapes[i];
             const auto& out_shape = output_unbatched_shapes[i];
@@ -40,34 +48,26 @@ private:
             std::vector<std::size_t> weight_shape;
             weight_shape.insert(weight_shape.end(), in_shape.begin() + num_shared_dims[i], in_shape.end());
             weight_shape.insert(weight_shape.end(), out_shape.begin() + num_shared_dims[i], out_shape.end());
-            weights_[i] = pool_->new_tensor(weight_shape, 0, 0.0f);
-            // bias shape is [output_dims...]
-            std::vector<std::size_t> bias_shape(out_shape.begin() + num_shared_dims[i], out_shape.end());
-            biases_[i] = pool_->new_tensor(bias_shape, 0, 0.0f);
+            weights_[i] = pool_->new_tensor(weight_shape, 0, 0.1f);
+            // bias shape is the full output unbatched shape for this mapping
+            std::vector<std::size_t> bias_shape(out_shape);
+            biases_[i] = pool_->new_tensor(bias_shape, 0, 0.1f);
             // in * weight + bias = out
             const std::size_t contractions = in_shape.size() - num_shared_dims[i];
-            // outputs_[i] = Operations::add(
-            //     Operations::matmul(inputs_[i], weights_[i].get(), contractions).get(),
-            //     biases_[i].get()
-            // );
+            outputs_[i] = Operations::add(
+                Operations::matmul(inputs_[i], weights_[i], contractions),
+                biases_[i]
+            );
         }
     }
 
-public:
     static std::unique_ptr<Layer> factory(
         const std::vector<std::vector<std::size_t>>& input_unbatched_shapes,
         const std::vector<std::vector<std::size_t>>& output_unbatched_shapes,
         const std::vector<Tensor*>& inputs,
         Pool* pool
     ) {
-        auto layer = std::make_unique<LinearLayer>(input_unbatched_shapes, output_unbatched_shapes, inputs);
-        return layer;
-    }
-
-    void forward() override {
-        for (auto& output : outputs_) {
-            output->forward();
-        }
+        return std::make_unique<LinearLayer>(input_unbatched_shapes, output_unbatched_shapes, inputs, pool);
     }
 };
 

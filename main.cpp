@@ -1,6 +1,11 @@
 #include "tensor.hpp"
 #include "operations.hpp"
 #include "pool.hpp"
+#include "model.hpp"
+#include "layer.hpp"
+#include "linear_layer.hpp"
+#include "loss.hpp"
+#include "mse_loss.hpp"
 
 #include <vector>
 #include <memory>
@@ -9,27 +14,23 @@
 #include <print>
 
 int main() {
-    Pool pool;
-    auto a = pool.new_tensor({2, 2}, 0, 1.0f);
-    auto b = pool.new_tensor({2, 2}, 0, 2.0f);
-    auto c = pool.new_tensor({2, 2}, 0, 3.0f);
-    auto d = Operations::add(
-        Operations::add(a, b), // 3s
-        Operations::add(b, c)  // 5s
+    std::println("Making model");
+    Model model = Model(
+        {LinearLayer::factory},
+        {{{2, 4}}},
+        {{{2, 3}}},
+        MSELoss::factory
     );
-    d->forward();
-    std::println("After forward:");
-    std::println("a: {}", a->to_string());
-    std::println("b: {}", b->to_string());
-    std::println("c: {}", c->to_string());
-    std::println("d: {}", d->to_string());
-    d->set_gradients(std::vector<float>(d->size(), 1.0f));
-    d->backward();
-    std::println("After backward:");
-    std::println("a: {}", a->to_string());
-    std::println("b: {}", b->to_string());
-    std::println("c: {}", c->to_string());
-    std::println("d: {}", d->to_string());
+    std::println("Setting inputs and running forward pass");
+    model.set_inputs({{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f}}, 1);
+    std::println("Performing forward pass");
+    model.forward();
+    for (const auto& output : model.outputs()) {
+        std::println("Outputs: {}", output->to_string());
+    }
+    for (auto& output : model.outputs()) {
+        output->set_gradients(std::vector<float>(output->size(), 1.0f));
+    }
     /*
     Model model = Model({
         std::make_unique<DenseLayer>(2, 3),
