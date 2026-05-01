@@ -28,9 +28,26 @@ int main() {
     for (const auto& output : model.outputs()) {
         std::println("Outputs: {}", output->to_string());
     }
-    for (auto& output : model.outputs()) {
-        output->set_gradients(std::vector<float>(output->size(), 1.0f));
-    }
+    model.set_targets({{0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f}}, 1);
+    std::println("Calculating loss");
+    model.loss();
+    Tensor* loss_output = model.loss_output();
+    std::println("Loss output: {}", loss_output->to_string());
+    std::println("Updating parameters with gradients");
+    model.backward();
+    // std::println("Printing parameters");
+    // const std::vector<std::vector<Tensor*>>& params = model.parameters();
+    // for (const auto& layer_params : params) {
+    //     for (const auto& param : layer_params) {
+    //         std::println("Param: {}", param->to_string());
+    //     }
+    // }
+    // next step: model.optimizer()->step();
+    // std::println("Performing another forward pass after backward");
+    // model.forward();
+    // for (const auto &output : model.outputs()) {
+    //     std::println("Outputs: {}", output->to_string());
+    // }
     /*
     Model model = Model({
         std::make_unique<DenseLayer>(2, 3),

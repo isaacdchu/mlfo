@@ -15,6 +15,7 @@ protected:
     std::vector<Tensor*> inputs_;
     std::vector<Tensor*> outputs_;
     Pool* pool_;
+    std::vector<Tensor*> parameters_;
 
     Layer(
         const std::vector<std::vector<std::size_t>>& input_unbatched_shapes,
@@ -65,6 +66,8 @@ public:
             output->backward();
         }
     }
+
+    virtual const std::vector<Tensor*>& parameters() = 0;
 };
 
 #endif // LAYER_HPP

@@ -18,15 +18,13 @@ public:
         const std::vector<Tensor*>& targets,
         Pool* pool
     ) : Loss(input_unbatched_shapes, inputs, targets, pool) {
-        /*
         std::vector<Tensor*> losses;
         for (std::size_t i = 0; i < inputs.size(); i++) {
             losses.push_back(Operations::mean_reduce(
                 Operations::pow(Operations::sub(targets[i], inputs[i]), 2.0f))
             );
         }
-        output_ = Operations::sum(losses);
-        */
+        output_ = (losses.size() >= 2) ? Operations::sum(losses) : losses[0];
     }
 
     static std::unique_ptr<Loss> factory(

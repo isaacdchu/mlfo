@@ -18,6 +18,7 @@ private:
     std::vector<Tensor*> inputs_;
     std::unique_ptr<Pool> pool_;
     std::vector<Tensor*> targets_;
+    std::vector<std::vector<Tensor*>> parameters_;
 public:
     Model() = delete;
 
@@ -68,12 +69,14 @@ public:
             for (const auto& output : layers_[i - 1]->outputs()) {
                 prev_output_ptrs.push_back(output);
             }
-            layers_.emplace_back(layer_factories[i](
-                all_input_unbatched_shapes[i],
-                all_output_unbatched_shapes[i],
-                prev_output_ptrs,
-                pool_.get()
-            ));
+            layers_.emplace_back(
+                layer_factories[i](
+                    all_input_unbatched_shapes[i],
+                    all_output_unbatched_shapes[i],
+                    prev_output_ptrs,
+                    pool_.get()
+                )
+            );
         }
         for (const auto& shape : all_output_unbatched_shapes.back()) {
             targets_.emplace_back(pool_->new_tensor(shape, 1));
@@ -84,6 +87,10 @@ public:
             targets_,
             pool_.get()
         );
+
+        for (const auto& layer : layers_) {
+            parameters_.push_back(layer->parameters());
+        }
     }
 
     void set_inputs(std::vector<std::vector<float>>&& input_values, std::size_t batch_size) {
@@ -93,6 +100,16 @@ public:
         }
         for (std::size_t i = 0; i < inputs_.size(); i++) {
             inputs_[i]->set_values(std::move(input_values[i]), batch_size);
+        }
+    }
+
+    void set_targets(std::vector<std::vector<float>>&& target_values, std::size_t batch_size) {
+        batch_size = std::max(batch_size, static_cast<std::size_t>(1));
+        if (target_values.size() != targets_.size()) {
+            throw std::runtime_error("[Model::set_targets] Number of target value sets must match number of model targets");
+        }
+        for (std::size_t i = 0; i < targets_.size(); i++) {
+            targets_[i]->set_values(std::move(target_values[i]), batch_size);
         }
     }
 
@@ -106,6 +123,10 @@ public:
 
     const std::vector<Tensor*>& outputs() const {
         return layers_.back()->outputs();
+    }
+
+    Tensor* loss_output() const {
+        return loss_->output();
     }
 
     void forward() {
@@ -123,6 +144,10 @@ public:
         for (auto it = layers_.rbegin(); it != layers_.rend(); it++) {
             (*it)->backward();
         }
+    }
+
+    const std::vector<std::vector<Tensor*>>& parameters() const {
+        return parameters_;
     }
 };
 

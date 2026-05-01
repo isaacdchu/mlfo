@@ -44,6 +44,10 @@ public:
             if (num_shared_dims[i] == 0) {
                 throw std::runtime_error("[LinearLayer::LinearLayer] Input and output shapes must share at least one dimension");
             }
+        }
+        for (std::size_t i = 0; i < input_unbatched_shapes.size(); i++) {
+            const auto &in_shape = input_unbatched_shapes[i];
+            const auto &out_shape = output_unbatched_shapes[i];
             // weight shape is [unshared_input_dims..., unshared_output_dims...]
             std::vector<std::size_t> weight_shape;
             weight_shape.insert(weight_shape.end(), in_shape.begin() + num_shared_dims[i], in_shape.end());
@@ -59,6 +63,15 @@ public:
                 biases_[i]
             );
         }
+        // add all weights and biases as parameters of this layer
+        for (std::size_t i = 0; i < num_shared_dims.size(); i++) {
+            parameters_.push_back(weights_[i]);
+            parameters_.push_back(biases_[i]);
+        }
+    }
+
+    const std::vector<Tensor*>& parameters() override {
+        return parameters_;
     }
 
     static std::unique_ptr<Layer> factory(
