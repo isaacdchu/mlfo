@@ -258,4 +258,82 @@ void run_operations_tests() {
         // ensure A has gradients (size and non-empty)
         assert_true(A->gradients().size() == A->size(), "A has gradients after add-then-matmul backward");
     }
+
+    // subtraction forward/backward
+    {
+        auto a = pool.new_tensor(std::vector<std::size_t>{3}, 0);
+        a->set_values(std::vector<float>{5.0f, 2.0f, -1.0f});
+        auto b = pool.new_tensor(std::vector<std::size_t>{3}, 0);
+        b->set_values(std::vector<float>{1.0f, 3.0f, -2.0f});
+        auto s = Operations::sub(a, b);
+        s->forward();
+        std::vector<float> expected = {4.0f, -1.0f, 1.0f};
+        for (std::size_t i = 0; i < s->size(); ++i) {
+            assert_true(nearf(s->values()[i], expected[i]), "sub forward produces expected differences");
+        }
+        s->set_gradients(std::vector<float>(s->size(), 2.0f));
+        s->backward();
+        for (std::size_t i = 0; i < a->size(); ++i) {
+            assert_true(nearf(a->gradients()[i], 2.0f), "sub backward propagates +1 into a scaled by out-grad");
+            assert_true(nearf(b->gradients()[i], -2.0f), "sub backward propagates -1 into b scaled by out-grad");
+        }
+    }
+
+    // power elementwise (pow) forward/backward
+    {
+        auto a = pool.new_tensor(std::vector<std::size_t>{4}, 0);
+        a->set_values(std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f});
+        float exponent = 3.0f;
+        auto p = Operations::pow(a, exponent);
+        p->forward();
+        for (std::size_t i = 0; i < a->size(); ++i) {
+            float expected = std::pow(a->values()[i], exponent);
+            assert_true(nearf(p->values()[i], expected), "pow forward produces expected elementwise powers");
+        }
+        p->set_gradients(std::vector<float>(p->size(), 1.0f));
+        p->backward();
+        for (std::size_t i = 0; i < a->size(); ++i) {
+            float expected_grad = exponent * std::pow(a->values()[i], exponent - 1.0f);
+            assert_true(nearf(a->gradients()[i], expected_grad), "pow backward computes derivative b*a^(b-1)");
+        }
+    }
+
+    // sum of multiple tensors forward/backward
+    {
+        auto t1 = pool.new_tensor(std::vector<std::size_t>{2}, 0);
+        t1->set_values(std::vector<float>{1.0f, 2.0f});
+        auto t2 = pool.new_tensor(std::vector<std::size_t>{2}, 0);
+        t2->set_values(std::vector<float>{3.0f, 4.0f});
+        auto t3 = pool.new_tensor(std::vector<std::size_t>{2}, 0);
+        t3->set_values(std::vector<float>{-1.0f, 0.5f});
+        std::vector<Tensor*> inputs = {t1, t2, t3};
+        auto S = Operations::sum(inputs);
+        S->forward();
+        std::vector<float> expected = {3.0f, 6.5f};
+        for (std::size_t i = 0; i < S->size(); ++i) {
+            assert_true(nearf(S->values()[i], expected[i]), "sum forward produces expected elementwise sums");
+        }
+        S->set_gradients(std::vector<float>(S->size(), 2.0f));
+        S->backward();
+        for (auto t : inputs) {
+            for (std::size_t i = 0; i < t->size(); ++i) {
+                assert_true(nearf(t->gradients()[i], 2.0f), "sum backward adds out-grad into each input gradient");
+            }
+        }
+    }
+
+    // mean reduce (produces scalar) forward/backward
+    {
+        auto t = pool.new_tensor(std::vector<std::size_t>{2,2}, 0);
+        t->set_values(std::vector<float>{1.0f, 3.0f, 5.0f, 7.0f});
+        auto M = Operations::mean_reduce(t);
+        M->forward();
+        float expected_mean = (1.0f + 3.0f + 5.0f + 7.0f) / 4.0f;
+        assert_true(nearf(M->values()[0], expected_mean), "mean_reduce forward computes average across elements");
+        M->set_gradients(std::vector<float>{4.0f}); // set dOut = 4 so each input grad should be 1
+        M->backward();
+        for (std::size_t i = 0; i < t->size(); ++i) {
+            assert_true(nearf(t->gradients()[i], 1.0f), "mean_reduce backward distributes gradient evenly across inputs");
+        }
+    }
 }
