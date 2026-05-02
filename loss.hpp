@@ -44,15 +44,15 @@ public:
         return input_unbatched_shapes_;
     }
 
-    Tensor* output() const {
+    virtual Tensor* output() const {
         return output_;
     }
 
-    void forward() {
+    virtual void forward() {
         output_->forward();
     }
 
-    void backward() {
+    virtual void backward() {
         output_->set_gradients(std::vector<float>(output_->size(), 1.0f));
         output_->backward();
     }
