@@ -40,6 +40,8 @@ protected:
     }
 
 public:
+    virtual ~Loss() = default;
+
     virtual const std::vector<std::vector<std::size_t>>& input_unbatched_shapes() const final {
         return input_unbatched_shapes_;
     }

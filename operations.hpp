@@ -244,6 +244,8 @@ public:
         output->forward_ = [](Tensor* output) -> void {
             Tensor* a = output->parents_[0];
             const std::size_t num_batches = std::max(a->batch_size(), static_cast<std::size_t>(1));
+            // reset output value before accumulation to avoid repeated sums across forwards
+            output->values_[0] = 0.0f;
             for (std::size_t batch = 0; batch < num_batches; batch++) {
                 const std::size_t a_base = a->batched() ? batch * a->unbatched_size() : 0;
                 float sum = 0.0f;

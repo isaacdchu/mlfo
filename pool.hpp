@@ -6,6 +6,7 @@
 #include <memory>
 #include <vector>
 #include <stdexcept>
+#include <ranges>
 #include <limits>
 
 class Pool {
@@ -46,6 +47,14 @@ public:
         Tensor* tensor_ptr = tensor.get();
         tensors_.push_back(std::move(tensor));
         return tensor_ptr;
+    }
+
+    auto tensors() const {
+        return tensors_ | std::views::transform(
+            [](const std::unique_ptr<Tensor>& tensor) -> Tensor* {
+                return tensor.get();
+            }
+        );
     }
 };
 

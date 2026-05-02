@@ -18,7 +18,7 @@ private:
     std::vector<Tensor*> inputs_;
     std::unique_ptr<Pool> pool_;
     std::vector<Tensor*> targets_;
-    std::vector<std::vector<Tensor*>> parameters_;
+    std::vector<Tensor*> parameters_;
 public:
     Model() = delete;
 
@@ -89,7 +89,7 @@ public:
         );
 
         for (const auto& layer : layers_) {
-            parameters_.push_back(layer->parameters());
+            parameters_.append_range(layer->parameters());
         }
     }
 
@@ -139,14 +139,20 @@ public:
         loss_->forward();
     }
 
+    void zero_grad() {
+        for (Tensor* tensor : pool_->tensors()) {
+            tensor->zero_grad();
+        }
+    }
+
     void backward() {
         loss_->backward();
-        for (auto it = layers_.rbegin(); it != layers_.rend(); it++) {
+        for (auto it = layers_.rbegin(), rend = layers_.rend(); it != rend; it++) {
             (*it)->backward();
         }
     }
 
-    const std::vector<std::vector<Tensor*>>& parameters() const {
+    const std::vector<Tensor*>& parameters() const {
         return parameters_;
     }
 };

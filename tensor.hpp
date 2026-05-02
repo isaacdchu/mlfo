@@ -184,6 +184,8 @@ public:
 
     void zero_grad() {
         std::fill(gradients_.begin(), gradients_.end(), 0.0f);
+        gradients_.resize(size_, 0.0f);
+        backward_dirty_ = true;
     }
 
     std::vector<std::size_t> expand_index(std::size_t flat_index) const {

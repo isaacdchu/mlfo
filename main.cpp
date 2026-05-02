@@ -6,6 +6,8 @@
 #include "linear_layer.hpp"
 #include "loss.hpp"
 #include "mse_loss.hpp"
+#include "optimizer.hpp"
+#include "sgd_optimizer.hpp"
 
 #include <vector>
 #include <memory>
@@ -21,20 +23,20 @@ int main() {
         {{{2, 3}}},
         MSELoss::factory
     );
-    std::println("Setting inputs and running forward pass");
-    model.set_inputs({{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f}}, 1);
-    std::println("Performing forward pass");
+    SGDOptimizer optimizer(model.parameters(), 0.01f);
+    for (std::size_t epoch = 0; epoch < 5000; epoch++) {
+        model.set_inputs({{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f}}, 1);
+        model.forward();
+        model.set_targets({{0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f}}, 1);
+        model.loss();
+        model.backward();
+        optimizer.step();
+        model.zero_grad();
+    }
     model.forward();
-    for (const auto& output : model.outputs()) {
+    for (const auto &output : model.outputs()) {
         std::println("Outputs: {}", output->to_string());
     }
-    model.set_targets({{0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f}}, 1);
-    std::println("Calculating loss");
-    model.loss();
-    Tensor* loss_output = model.loss_output();
-    std::println("Loss output: {}", loss_output->to_string());
-    std::println("Updating parameters with gradients");
-    model.backward();
     // std::println("Printing parameters");
     // const std::vector<std::vector<Tensor*>>& params = model.parameters();
     // for (const auto& layer_params : params) {
@@ -42,7 +44,7 @@ int main() {
     //         std::println("Param: {}", param->to_string());
     //     }
     // }
-    // next step: model.optimizer()->step();
+    // next step: optimizer.step();
     // std::println("Performing another forward pass after backward");
     // model.forward();
     // for (const auto &output : model.outputs()) {
