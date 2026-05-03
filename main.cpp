@@ -16,13 +16,14 @@
 #include <vector>
 
 int main() {
-    Model model = Model(
-        {LinearLayer::factory},
-        {{{2, 4}}},
-        {{{2, 3}}},
-        MSELoss::factory);
-    SGDOptimizer optimizer(model.parameters(), 0.01f);
-    for (std::size_t epoch = 1; epoch <= 10000; epoch++) {
+    Model model(
+        {LinearLayer::factory, LinearLayer::factory},
+        {{{2, 4}}, {{3, 3}}},
+        {{{3, 3}}, {{2, 3}}},
+        MSELoss::factory
+    );
+    SGDOptimizer optimizer(model.parameters(), 0.03f);
+    for (std::size_t epoch = 1; epoch <= 50000; epoch++) {
         model.set_inputs({{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f,
                            2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f,
                            3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f,
