@@ -40,10 +40,6 @@ static bool unbatched_shapes_equal(const std::vector<Tensor*>& tensors) {
 
 class Operations {
 private:
-    static void matmul_helper() {
-        // TODO: implement matmul helper function that can be used for both forward and backward pass of matmul
-    }
-
     static bool same_pool(Tensor* a, Tensor* b) {
         if (!a->pool_ || !b->pool_) {
             throw std::runtime_error("[Operations::same_pool] Both tensors must have an associated pool");
@@ -239,32 +235,32 @@ public:
     }
 
     static Tensor* mean_reduce(Tensor* a) {
-        auto output = a->pool_->new_tensor({1}, 0, 0.0f);
+        // does not reduce batches, only unbatched dimensions
+        // keep the same batch size as the input so each batch has its own reduced value
+        auto output = a->pool_->new_tensor({1}, a->batch_size(), 0.0f);
         output->set_parents({a});
         output->forward_ = [](Tensor* output) -> void {
             Tensor* a = output->parents_[0];
             const std::size_t num_batches = std::max(a->batch_size(), static_cast<std::size_t>(1));
-            // reset output value before accumulation to avoid repeated sums across forwards
-            output->values_[0] = 0.0f;
             for (std::size_t batch = 0; batch < num_batches; batch++) {
+                const std::size_t output_base = output->batched() ? batch * output->unbatched_size() : 0;
                 const std::size_t a_base = a->batched() ? batch * a->unbatched_size() : 0;
                 float sum = 0.0f;
                 for (std::size_t i = 0; i < a->unbatched_size(); i++) {
                     sum += a->values_[a_base + i];
                 }
-                output->values_[0] += sum / static_cast<float>(a->unbatched_size());
+                output->values_[output_base] = sum / static_cast<float>(a->unbatched_size());
             }
-            output->values_[0] /= static_cast<float>(num_batches);
         };
         output->backward_ = [](Tensor* output) -> void {
             Tensor* a = output->parents_[0];
             const std::size_t num_batches = std::max(output->batch_size(), static_cast<std::size_t>(1));
             for (std::size_t batch = 0; batch < num_batches; batch++) {
+                const std::size_t output_base = output->batched() ? batch * output->unbatched_size() : 0;
                 const std::size_t a_base = a->batched() ? batch * a->unbatched_size() : 0;
                 for (std::size_t i = 0; i < a->unbatched_size(); i++) {
                     a->gradients_[a_base + i] +=
-                        output->gradients_[0] /
-                        (static_cast<float>(a->unbatched_size()) * static_cast<float>(num_batches));
+                        output->gradients_[output_base] / static_cast<float>(a->unbatched_size());
                 }
             }
         };

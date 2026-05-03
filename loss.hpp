@@ -55,7 +55,12 @@ public:
     }
 
     virtual void backward() {
-        output_->set_gradients(std::vector<float>(output_->size(), 1.0f));
+        float scale = 1.0f;
+        if (output_->batched()) {
+            const std::size_t bs = output_->batch_size();
+            if (bs > 0) scale = 1.0f / static_cast<float>(bs);
+        }
+        output_->set_gradients(std::vector<float>(output_->size(), scale));
         output_->backward();
     }
 };

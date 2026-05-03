@@ -1,6 +1,8 @@
 #ifndef TENSOR_HPP
 #define TENSOR_HPP
 
+#include "utils.hpp"
+
 #include <vector>
 #include <memory>
 #include <stdexcept>
@@ -78,10 +80,13 @@ public:
         for (Tensor* parent : parents_) {
             parent->forward();
         }
-        if (forward_dirty_) {
-            forward_(this);
-            forward_dirty_ = false;
-        }
+        adjust_batch_size(utils::max<Tensor*, std::size_t>(
+            parents_, [](const Tensor* parent) { return parent->batch_size(); }
+        ));
+        values_.resize(size_, 0.0f);
+        gradients_.resize(size_, 0.0f);
+        forward_(this);
+        forward_dirty_ = false;
     }
 
     void backward() {
@@ -122,25 +127,12 @@ public:
     }
 
     void set_values(std::vector<float>&& values, std::size_t batch_size = 0) {
-        if (!batched_ && batch_size > 0) {
-            // unbatched -> batched
-            batched_ = true;
-            shape_.insert(shape_.begin(), batch_size);
-            strides_ = compute_strides(shape_);
-            size_ = strides_[0] * shape_[0];
-            unbatched_size_ = size_ / batch_size;
-        } else if (batched_ && batch_size == 0) {
-            // batched -> unbatched
-            batched_ = false;
-            shape_.erase(shape_.begin());
-            strides_ = compute_strides(shape_);
-            size_ = strides_[0] * shape_[0];
-            unbatched_size_ = size_;
-        }
+        adjust_batch_size(batch_size);
         if (values.size() != size_) {
             throw std::runtime_error("[Tensor::set_values] Values size does not match tensor size");
         }
         values_ = std::move(values);
+        gradients_.resize(size_, 0.0f);
         // all successors are forward dirty
         std::vector<Tensor*> stack = children_;
         while (!stack.empty()) {
@@ -286,6 +278,31 @@ private:
             strides[i] = strides[i + 1] * shape[i + 1];
         }
         return strides;
+    }
+
+    void adjust_batch_size(std::size_t new_batch_size) {
+        // caller must adjust values and gradients after calling this function
+        if (!batched_ && new_batch_size > 0) {
+            // unbatched -> batched
+            batched_ = true;
+            shape_.insert(shape_.begin(), new_batch_size);
+            strides_ = compute_strides(shape_);
+            size_ = strides_[0] * shape_[0];
+            unbatched_size_ = size_ / new_batch_size;
+        } else if (batched_ && new_batch_size == 0) {
+            // batched -> unbatched
+            batched_ = false;
+            shape_.erase(shape_.begin());
+            strides_ = compute_strides(shape_);
+            size_ = strides_[0] * shape_[0];
+            unbatched_size_ = size_;
+        } else if (batched_ && new_batch_size > 0 && shape_[0] != new_batch_size) {
+            // change batch size of an already batched tensor
+            shape_[0] = new_batch_size;
+            strides_ = compute_strides(shape_);
+            size_ = strides_[0] * shape_[0];
+            unbatched_size_ = size_ / new_batch_size;
+        }
     }
 
     std::size_t calculate_index(const std::vector<std::size_t>& indices) const {

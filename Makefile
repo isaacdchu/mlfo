@@ -1,5 +1,5 @@
 CC=g++-15
-FLAGS=-std=c++23 -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function -Werror -O1
+FLAGS=-std=c++23 -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function -Werror -O2
 BUILD_DIR=build
 TARGETS=*.cpp *.hpp
 

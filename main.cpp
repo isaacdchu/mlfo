@@ -1,38 +1,45 @@
-#include "tensor.hpp"
-#include "operations.hpp"
-#include "pool.hpp"
-#include "model.hpp"
 #include "layer.hpp"
 #include "linear_layer.hpp"
 #include "loss.hpp"
+#include "model.hpp"
 #include "mse_loss.hpp"
+#include "operations.hpp"
 #include "optimizer.hpp"
+#include "pool.hpp"
 #include "sgd_optimizer.hpp"
+#include "tensor.hpp"
 
-#include <vector>
-#include <memory>
-#include <iostream>
 #include <format>
+#include <iostream>
+#include <memory>
 #include <print>
+#include <vector>
 
 int main() {
-    std::println("Making model");
     Model model = Model(
         {LinearLayer::factory},
         {{{2, 4}}},
         {{{2, 3}}},
-        MSELoss::factory
-    );
+        MSELoss::factory);
     SGDOptimizer optimizer(model.parameters(), 0.01f);
-    for (std::size_t epoch = 0; epoch < 5000; epoch++) {
-        model.set_inputs({{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f}}, 1);
+    for (std::size_t epoch = 1; epoch <= 10000; epoch++) {
+        model.set_inputs({{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f,
+                           2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f,
+                           3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f,
+                           4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 11.0f}},
+                         4);
         model.forward();
-        model.set_targets({{0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f}}, 1);
+        model.set_targets({{0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f,
+                            1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 3.5f,
+                            1.5f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f,
+                            2.0f, 2.5f, 3.0f, 3.5f, 4.0f, 4.5f}},
+                          4);
         model.loss();
         model.backward();
         optimizer.step();
         model.zero_grad();
     }
+    std::println("Final outputs after training:");
     model.forward();
     for (const auto &output : model.outputs()) {
         std::println("Outputs: {}", output->to_string());
