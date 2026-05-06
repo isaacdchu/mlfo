@@ -12,6 +12,7 @@
 #include <numeric>
 #include <string>
 
+class Operations;
 class Pool;
 
 class Tensor {

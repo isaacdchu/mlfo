@@ -14,16 +14,16 @@
 #include <cmath>
 
 static void print_vector(const std::vector<std::size_t>& vec) {
-        std::print("[");
-        for (size_t i = 0; i < vec.size(); i++) {
-            std::print("{}", vec[i]);
-            if (i < vec.size() - 1) {
-                std::print(", ");
-            }
+    std::print("[");
+    for (size_t i = 0; i < vec.size(); i++) {
+        std::print("{}", vec[i]);
+        if (i < vec.size() - 1) {
+            std::print(", ");
         }
-        std::println("]");
-        std::flush(std::cout);
     }
+    std::println("]");
+    std::flush(std::cout);
+}
 
 static bool unbatched_shapes_equal(const std::vector<Tensor*>& tensors) {
     if (tensors.empty()) {
