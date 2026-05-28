@@ -65,7 +65,7 @@ public:
         const std::size_t batch_size = std::max(a->batch_size(), b->batch_size());
         auto output = a->pool_->new_tensor(a->unbatched_shape(), batch_size, 0.0f);
         output->set_parents({a, b});
-        output->forward_ = [](Tensor *output) -> void {
+        output->forward_ = [](Tensor* output) -> void {
             // update values of output
             Tensor* a = output->parents_[0];
             Tensor* b = output->parents_[1];
@@ -110,7 +110,7 @@ public:
         const std::size_t batch_size = std::max(a->batch_size(), b->batch_size());
         auto output = a->pool_->new_tensor(a->unbatched_shape(), batch_size, 0.0f);
         output->set_parents({a, b});
-        output->forward_ = [](Tensor *output) -> void {
+        output->forward_ = [](Tensor* output) -> void {
             // update values of output
             Tensor* a = output->parents_[0];
             Tensor* b = output->parents_[1];
@@ -149,7 +149,7 @@ public:
         const std::size_t batch_size = a->batch_size();
         auto output = a->pool_->new_tensor(a->unbatched_shape(), batch_size, 0.0f);
         output->set_parents({a});
-        output->forward_ = [b](Tensor *output) -> void {
+        output->forward_ = [b](Tensor* output) -> void {
             // update values of output
             Tensor* a = output->parents_[0];
             const std::size_t num_batches = std::max(output->batch_size(), static_cast<std::size_t>(1));
@@ -200,7 +200,7 @@ public:
         const std::size_t batch_size = find_max(tensors);
         auto output = tensors[0]->pool_->new_tensor(tensors[0]->unbatched_shape(), batch_size, 0.0f);
         output->set_parents(tensors);
-        output->forward_ = [tensors](Tensor *output) -> void {
+        output->forward_ = [tensors](Tensor* output) -> void {
             const std::size_t num_batches = std::max(output->batch_size(), static_cast<std::size_t>(1));
             // update values of output
             for (std::size_t batch = 0; batch < num_batches; batch++) {
@@ -396,6 +396,35 @@ public:
                 }
             }
             return;
+        };
+        return output;
+    }
+
+    static Tensor* relu(Tensor* a) {
+        const std::size_t batch_size = a->batch_size();
+        auto output = a->pool_->new_tensor(a->unbatched_shape(), batch_size, 0.0f);
+        output->set_parents({a});
+        output->forward_ = [](Tensor* output) -> void {
+            Tensor* a = output->parents_[0];
+            const std::size_t num_batches = std::max(output->batch_size(), static_cast<std::size_t>(1));
+            for (std::size_t batch = 0; batch < num_batches; batch++) {
+                const std::size_t base = output->batched() ? batch * output->unbatched_size() : 0;
+                for (std::size_t i = 0; i < output->unbatched_size(); i++) {
+                    output->values_[base + i] = std::max(0.0f, a->values_[base + i]);
+                }
+            }
+        };
+        output->backward_ = [](Tensor* output) -> void {
+            Tensor* a = output->parents_[0];
+            const std::size_t num_batches = std::max(output->batch_size(), static_cast<std::size_t>(1));
+            for (std::size_t batch = 0; batch < num_batches; batch++) {
+                const std::size_t base = output->batched() ? batch * output->unbatched_size() : 0;
+                for (std::size_t i = 0; i < output->unbatched_size(); i++) {
+                    if (a->values_[base + i] > 0.0f) {
+                        a->gradients_[base + i] += output->gradients_[base + i];
+                    }
+                }
+            }
         };
         return output;
     }

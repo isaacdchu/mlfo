@@ -336,4 +336,22 @@ void run_operations_tests() {
             assert_true(nearf(t->gradients()[i], 1.0f), "mean_reduce backward distributes gradient evenly across inputs");
         }
     }
+
+    // relu forward/backward
+    {
+        auto t = pool.new_tensor(std::vector<std::size_t>{4}, 0);
+        t->set_values(std::vector<float>{-1.0f, 0.0f, 0.5f, 2.0f});
+        auto R = Operations::relu(t);
+        R->forward();
+        std::vector<float> expected = {0.0f, 0.0f, 0.5f, 2.0f};
+        for (std::size_t i = 0; i < R->size(); ++i) {
+            assert_true(nearf(R->values()[i], expected[i]), "relu forward produces max(0, x)");
+        }
+        R->set_gradients(std::vector<float>(R->size(), 2.0f));
+        R->backward();
+        assert_true(nearf(t->gradients()[0], 0.0f), "relu backward zero gradient for negative input");
+        assert_true(nearf(t->gradients()[1], 0.0f), "relu backward zero gradient for zero input");
+        assert_true(nearf(t->gradients()[2], 2.0f), "relu backward passes gradient for positive input");
+        assert_true(nearf(t->gradients()[3], 2.0f), "relu backward passes gradient for positive input");
+    }
 }
