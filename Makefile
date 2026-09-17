@@ -1,11 +1,10 @@
-CC=g++-15
+CC=g++-16
 FLAGS=-std=c++23 -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function -Werror -O2
 BUILD_DIR=build
 TARGETS=*.cpp *.hpp
 
 $(BUILD_DIR)/main: $(TARGETS)
 	$(CC) $(FLAGS) main.cpp -o $(BUILD_DIR)/main
-
 
 # find all test .cpp files recursively under tests/
 TEST_SRCS=$(shell find tests -name '*.cpp')
