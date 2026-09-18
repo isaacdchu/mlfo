@@ -1,0 +1,4 @@
+#ifndef OPTIMIZER_HPP
+#define OPTIMIZER_HPP
+
+#endif // OPTIMIZER_HPP
