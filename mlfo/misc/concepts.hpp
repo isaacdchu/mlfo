@@ -9,6 +9,6 @@ namespace mlfo::misc {
 template <typename T>
 concept Number = std::is_arithmetic_v<T>;
 
-}
+} // namespace mlfo::misc
 
 #endif // CONCEPTS_HPP

@@ -1,9 +1,12 @@
 #ifndef NODE_HPP
 #define NODE_HPP
 
+#include <functional>
 #include <memory>
 #include <vector>
 #include <utility>
+
+#include "../tensor/ops.hpp"
 
 namespace mlfo::graph {
 
@@ -11,47 +14,76 @@ template <class T>
 class Node {
 private:
     std::unique_ptr<T> data_;
-    std::vector<Node*> successors_;
-    std::vector<Node*> predecessors_;
+    std::vector<std::reference_wrapper<Node<T>>> successors_;
+    std::vector<std::reference_wrapper<Node<T>>> predecessors_;
+    // function that performs forward and backward pass
+    std::function<void(mlfo::tensor::ops::DIRECTION)> operation_;
+    bool forward_dirty_;
+    bool backward_dirty_;
 public:
-    template <class... Args>
-    Node(Args... args) :
-    data_(std::make_unique<T>(std::forward<Args>(args)...)) {
-        //
+    Node(std::unique_ptr<T> data) :
+    data_(std::move(data)),
+    operation_(
+        [](mlfo::tensor::ops::DIRECTION direction) -> void {
+            // nothing
+        }
+    ),
+    forward_dirty_(true),
+    backward_dirty_(true)
+    {
+        // nothing
     }
 
-    constexpr const T& data() const {
+    const T& data() const {
         return *data_;
     }
 
-    void add_successor(Node* successor) {
-        successors_.push_back(successor);
-        successor->predecessors_.push_back(this);
+    T& data() {
+        return *data_;
     }
 
-    void add_successors(const std::vector<Node*>& successors) {
-        for (Node* successor : successors) {
-            add_successor(successor);
-        }
-    }
-
-    void add_predecessor(Node* predecessor) {
+    void add_predecessor(
+        Node<T>& predecessor,
+        std::function<void(mlfo::tensor::ops::DIRECTION)> operation
+    ) {
         predecessors_.push_back(predecessor);
-        predecessor->successors_.push_back(this);
+        predecessor.successors_.push_back(*this);
+        operation_ = operation;
     }
 
-    void add_predecessors(const std::vector<Node*>& predecessors) {
-        for (Node* predecessor : predecessors) {
-            add_predecessor(predecessor);
+    void add_predecessors(
+        const std::vector<std::reference_wrapper<Node<T>>>& predecessors,
+        std::function<void(mlfo::tensor::ops::DIRECTION)> operation
+    ) {
+        for (auto& predecessor : predecessors) {
+            predecessors_.push_back(predecessor);
+            predecessor.successors_.push_back(*this);
         }
+        operation_ = operation;
     }
 
-    const std::vector<Node*>& successors() const {
+    const std::vector<std::reference_wrapper<Node<T>>>& successors() {
         return successors_;
     }
 
-    const std::vector<Node*>& predecessors() const {
+    const std::vector<std::reference_wrapper<Node<T>>>& predecessors() {
         return predecessors_;
+    }
+
+    void forward() {
+        if (!forward_dirty_) {
+            return;
+        }
+        operation_(mlfo::tensor::ops::DIRECTION::FORWARD);
+        forward_dirty_ = false;
+    }
+
+    void backward() {
+        if (!backward_dirty_) {
+            return;
+        }
+        operation_(mlfo::tensor::ops::DIRECTION::BACKWARD);
+        backward_dirty_ = false;
     }
 };
 

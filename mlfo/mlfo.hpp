@@ -9,7 +9,7 @@
 #include "model/model.hpp"
 #include "optimizer/optimizer.hpp"
 #include "optimizer/sgd.hpp"
-#include "tensor/operation.hpp"
+#include "tensor/ops.hpp"
 #include "tensor/tensor.hpp"
 
 #endif // MLFO_HPP

@@ -11,10 +11,27 @@
 
 #include "../misc/concepts.hpp"
 
+
+
 namespace mlfo::tensor {
 
 template <mlfo::misc::Number T>
+class Tensor;
+
+template <mlfo::misc::Number T>
+struct Operation {
+protected:
+    static std::vector<T>& values(Tensor<T>& tensor) {
+        return tensor.values_;
+    }
+    static std::vector<T>& gradients(Tensor<T>& tensor) {
+        return tensor.gradients_;
+    }
+};
+
+template <mlfo::misc::Number T>
 class Tensor {
+friend struct Operation<T>;
 private:
     std::vector<T> values_;
     std::vector<T> gradients_;
@@ -78,8 +95,8 @@ public:
             }
             size_ *= shape_[i];
         }
-        values_.resize(size_);
-        std::fill(values_.begin(), values_.end(), T{0});
+        values_.resize(size_, T{0});
+        gradients_.resize(size_, T{0});
 
         strides_[shape_.size() - 1] = 1;
         for (std::size_t i = shape_.size() - 1; i > 0; i--) {
@@ -97,12 +114,12 @@ public:
         return index;
     }
 
-    T operator[](std::size_t batch, const std::vector<std::size_t>& indices) const {
-        return values_[flatten_index(batch, indices)];
+    const std::vector<T>& values() const {
+        return values_;
     }
 
-    T& operator[](std::size_t batch, const std::vector<std::size_t>& indices) {
-        return values_[flatten_index(batch, indices)];
+    const std::vector<T>& gradients() const {
+        return gradients_;
     }
 
     std::size_t rank() const {
@@ -119,14 +136,6 @@ public:
 
     const std::vector<std::size_t>& strides() const {
         return strides_;
-    }
-
-    const std::vector<T>& values() const {
-        return values_;
-    }
-
-    const std::vector<T>& gradients() const {
-        return gradients_;
     }
 
     std::size_t size() const {
