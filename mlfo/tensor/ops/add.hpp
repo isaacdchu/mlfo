@@ -19,8 +19,16 @@ private:
         const Tensor<T>& b
     ) {
         // perform element-wise addition
-        for (std::size_t i = 0; i < out.values().size(); i++) {
-            mlfo::tensor::Operation<T>::values(out)[i] = a.values()[i] + b.values()[i];
+        // broadcast b to the shape of a if necessary
+        for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
+            const std::size_t a_batch_offset = batch * a.unbatched_size();
+            const std::size_t b_batch_offset = (b.batch_size() == 1) ? 0 : batch * b.unbatched_size();
+            const std::size_t out_batch_offset = batch * out.unbatched_size();
+            for (std::size_t i = 0; i < a.unbatched_size(); i++) {
+                mlfo::tensor::Operation<T>::values(out)[out_batch_offset + i] = (
+                    a.values()[a_batch_offset + i] + b.values()[b_batch_offset + i]
+                );
+            }
         }
     }
 
@@ -30,6 +38,7 @@ private:
         Tensor<T>& b
     ) {
         // propagate gradients to a and b
+        // no broadcasting needed since graidents don't have batches
         for (std::size_t i = 0; i < out.gradients().size(); i++) {
             mlfo::tensor::Operation<T>::gradients(a)[i] += out.gradients()[i];
             mlfo::tensor::Operation<T>::gradients(b)[i] += out.gradients()[i];
@@ -44,13 +53,31 @@ public:
         Tensor<T>& a,
         Tensor<T>& b
     ) {
+        // check that the shapes of a, b, and out are compatible
+        if (a.shape() != b.shape() || a.shape() != out.shape()) {
+            throw std::invalid_argument(
+                "[tensor::ops::add] Shapes of input tensors must be the same"
+            );
+        }
+        // check that the batch sizes of a, b, and out are compatible
+        // out must match a, b can be broadcasted if its batch size is 1
+        if (a.batch_size() != out.batch_size()) {
+            throw std::invalid_argument(
+                "[tensor::ops::add] Batch sizes of output tensor must match input tensor a"
+            );
+        }
+        if (a.batch_size() != b.batch_size() && b.batch_size() != 1) {
+            throw std::invalid_argument(
+                "[tensor::ops::add] Batch sizes of input tensors must be the same or b must have batch size 1"
+            );
+        }
         switch (direction) {
             case DIRECTION::FORWARD:
                 add_forward(out, a, b);
-                break;
+                return;
             case DIRECTION::BACKWARD:
                 add_backward(out, a, b);
-                break;
+                return;
             default:
                 throw std::invalid_argument(
                     "[tensor::ops::add] Invalid direction"

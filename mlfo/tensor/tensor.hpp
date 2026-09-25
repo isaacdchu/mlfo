@@ -11,8 +11,6 @@
 
 #include "../misc/concepts.hpp"
 
-
-
 namespace mlfo::tensor {
 
 template <mlfo::misc::Number T>
@@ -41,6 +39,7 @@ private:
     std::size_t batch_stride_; // stride for the batch dimension
     std::size_t rank_; // rank of the tensor (number of dimensions). batch is not a dimension
     std::size_t size_; // number of elements in the tensor (including batches)
+    std::size_t unbatched_size_; // number of elements in one batch
 
     std::string to_string_helper(
         const std::vector<T>& data,
@@ -76,7 +75,8 @@ public:
     strides_(shape.size()),
     batch_stride_(0),
     rank_(shape.size()),
-    size_(0)
+    size_(0),
+    unbatched_size_(0)
     {
         if (batch_size_ == 0) {
             throw std::invalid_argument(
@@ -95,8 +95,10 @@ public:
             }
             size_ *= shape_[i];
         }
+        unbatched_size_ = size_ / batch_size_;
         values_.resize(size_, T{0});
-        gradients_.resize(size_, T{0});
+        // gradients don't have batches
+        gradients_.resize(unbatched_size_, T{0});
 
         strides_[shape_.size() - 1] = 1;
         for (std::size_t i = shape_.size() - 1; i > 0; i--) {
@@ -140,6 +142,10 @@ public:
 
     std::size_t size() const {
         return values_.size();
+    }
+
+    std::size_t unbatched_size() const {
+        return unbatched_size_;
     }
 
     std::string to_string() const {
