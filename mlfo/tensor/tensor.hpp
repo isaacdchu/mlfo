@@ -13,6 +13,15 @@
 
 namespace mlfo::tensor {
 
+namespace ops {
+
+enum class DIRECTION {
+    FORWARD,
+    BACKWARD
+};
+
+} // namespace mlfo::tensor::ops
+
 template <mlfo::misc::Number T>
 class Tensor;
 
@@ -69,6 +78,8 @@ private:
         return result;
     }
 public:
+    // use batch size of 1 for unbatched tensors
+    // this allows broadcasting for tensor operations
     Tensor(std::size_t batch_size, const std::vector<std::size_t>& shape) :
     batch_size_(batch_size),
     shape_(shape),
@@ -78,6 +89,7 @@ public:
     size_(0),
     unbatched_size_(0)
     {
+        // validate batch size and shape
         if (batch_size_ == 0) {
             throw std::invalid_argument(
                 "[mlfo::tensor::Tensor] Batch size must be greater than zero"

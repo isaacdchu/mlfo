@@ -12,9 +12,7 @@
 namespace mlfo::layer {
 
 template <mlfo::misc::Number T>
-class DenseLayer : public mlfo::layer::Layer {
-private:
-    mlfo::graph::Graph<mlfo::tensor::Tensor<T>> graph_;
+class DenseLayer : public mlfo::layer::Layer<T> {
 public:
     DenseLayer(std::size_t input_size, std::size_t output_size) {
         auto input_node = std::make_unique<mlfo::graph::Node<mlfo::tensor::Tensor<T>>>(
@@ -53,32 +51,27 @@ public:
         );
         prebias_node->add_predecessors(
             {*input_node, *weight_node},
-            [](mlfo::tensor::ops::DIRECTION direction) -> void {
-                // todo
+            [
+                &prebias_node_tensor = prebias_node->data(),
+                &input_node_tensor = input_node->data(),
+                &weight_node_tensor = weight_node->data()
+            ](mlfo::tensor::ops::DIRECTION direction) -> void {
+                // input * weight
+                mlfo::tensor::ops::Mul<T>::call(
+                    direction,
+                    prebias_node_tensor,
+                    input_node_tensor,
+                    weight_node_tensor
+                );
             }
         );
-        graph_ = mlfo::graph::Graph<mlfo::tensor::Tensor<T>>(
-            {
-                std::move(input_node),
-                std::move(weight_node),
-                std::move(bias_node),
-                std::move(output_node)
-            }
-        );
-    }
-
-    void forward() override {
-        for (auto it = graph_.tail_begin(); it != graph_.tail_end(); ++it) {
-            auto& node = *it;
-            node.forward();
-        }
-    }
-
-    void backward() override {
-        for (auto it = graph_.head_begin(); it != graph_.head_end(); ++it) {
-            auto& node = *it;
-            node.backward();
-        }
+        std::vector<std::unique_ptr<mlfo::graph::Node<mlfo::tensor::Tensor<T>>>> nodes;
+        nodes.push_back(std::move(input_node));
+        nodes.push_back(std::move(weight_node));
+        nodes.push_back(std::move(bias_node));
+        nodes.push_back(std::move(prebias_node));
+        nodes.push_back(std::move(output_node));
+        this->graph_ = mlfo::graph::Graph<mlfo::tensor::Tensor<T>>(std::move(nodes));
     }
 };
 

@@ -38,10 +38,14 @@ private:
         Tensor<T>& b
     ) {
         // propagate gradients to a and b
-        // no broadcasting needed since graidents don't have batches
-        for (std::size_t i = 0; i < out.gradients().size(); i++) {
-            mlfo::tensor::Operation<T>::gradients(a)[i] += out.gradients()[i];
-            mlfo::tensor::Operation<T>::gradients(b)[i] += out.gradients()[i];
+        for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
+            const std::size_t a_batch_offset = batch * a.unbatched_size();
+            const std::size_t b_batch_offset = (b.batch_size() == 1) ? 0 : batch * b.unbatched_size();
+            const std::size_t out_batch_offset = batch * out.unbatched_size();
+            for (std::size_t i = 0; i < a.unbatched_size(); i++) {
+                mlfo::tensor::Operation<T>::gradients(a)[a_batch_offset + i] += out.gradients()[out_batch_offset + i];
+                mlfo::tensor::Operation<T>::gradients(b)[b_batch_offset + i] += out.gradients()[out_batch_offset + i];
+            }
         }
     }
 
@@ -87,7 +91,5 @@ public:
 };
 
 } // namespace mlfo::tensor::ops
-
-
 
 #endif // ADD_HPP

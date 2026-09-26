@@ -57,7 +57,7 @@ public:
     ) {
         for (auto& predecessor : predecessors) {
             predecessors_.push_back(predecessor);
-            predecessor.successors_.push_back(*this);
+            predecessor.get().successors_.push_back(*this);
         }
         operation_ = operation;
     }
