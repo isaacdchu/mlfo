@@ -4,6 +4,8 @@
 #include <array>
 #include <algorithm>
 #include <stdexcept>
+#include <memory>
+#include <cstddef>
 #include <string>
 #include <vector>
 #include <print>
@@ -109,8 +111,8 @@ public:
         }
         unbatched_size_ = size_ / batch_size_;
         values_.resize(size_, T{0});
-        // gradients don't have batches
-        gradients_.resize(unbatched_size_, T{0});
+        // gradients have the same batched layout as values
+        gradients_.resize(size_, T{0});
 
         strides_[shape_.size() - 1] = 1;
         for (std::size_t i = shape_.size() - 1; i > 0; i--) {
@@ -130,6 +132,17 @@ public:
 
     const std::vector<T>& values() const {
         return values_;
+    }
+
+    // replaces every value (all batches, flattened) by taking ownership of values
+    // the size must match exactly. rvalue only so callers cannot copy by accident
+    void set_values(std::vector<T>&& values) {
+        if (values.size() != values_.size()) {
+            throw std::invalid_argument(
+                "[mlfo::tensor::Tensor] Number of values does not match the tensor size"
+            );
+        }
+        values_ = std::move(values);
     }
 
     const std::vector<T>& gradients() const {
@@ -181,9 +194,7 @@ public:
         result += ",\n\tgradients=";
         std::size_t gradient_index = 0;
         std::vector<std::size_t> gradient_shape = shape_;
-        if (gradients_.size() == size_) {
-            gradient_shape.insert(gradient_shape.begin(), batch_size_);
-        }
+        gradient_shape.insert(gradient_shape.begin(), batch_size_);
         result += to_string_helper(gradients_, gradient_shape, 0, gradient_index);
         result += "\n)";
         return result;

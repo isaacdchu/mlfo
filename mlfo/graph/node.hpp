@@ -13,7 +13,7 @@ namespace mlfo::graph {
 template <class T>
 class Node {
 private:
-    std::unique_ptr<T> data_;
+    T data_;
     std::vector<std::reference_wrapper<Node<T>>> successors_;
     std::vector<std::reference_wrapper<Node<T>>> predecessors_;
     // function that performs forward and backward pass
@@ -21,8 +21,8 @@ private:
     bool forward_dirty_;
     bool backward_dirty_;
 public:
-    Node(std::unique_ptr<T> data) :
-    data_(std::move(data)),
+    Node(T data) :
+    data_(data),
     operation_(
         [](mlfo::tensor::ops::DIRECTION direction) -> void {
             // nothing
@@ -35,11 +35,11 @@ public:
     }
 
     const T& data() const {
-        return *data_;
+        return data_;
     }
 
     T& data() {
-        return *data_;
+        return data_;
     }
 
     void add_predecessor(
@@ -47,7 +47,7 @@ public:
         std::function<void(mlfo::tensor::ops::DIRECTION)> operation
     ) {
         predecessors_.push_back(predecessor);
-        predecessor.successors_.push_back(*this);
+        predecessor.successors_.push_back(std::ref(*this));
         operation_ = operation;
     }
 
@@ -57,7 +57,7 @@ public:
     ) {
         for (auto& predecessor : predecessors) {
             predecessors_.push_back(predecessor);
-            predecessor.get().successors_.push_back(*this);
+            predecessor.get().successors_.push_back(std::ref(*this));
         }
         operation_ = operation;
     }
@@ -68,6 +68,12 @@ public:
 
     const std::vector<std::reference_wrapper<Node<T>>>& predecessors() {
         return predecessors_;
+    }
+
+    // forces the next forward() and backward() to recompute
+    void invalidate() {
+        forward_dirty_ = true;
+        backward_dirty_ = true;
     }
 
     void forward() {

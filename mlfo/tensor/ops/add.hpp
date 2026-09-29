@@ -20,12 +20,13 @@ private:
     ) {
         // perform element-wise addition
         // broadcast b to the shape of a if necessary
+        auto& out_values = mlfo::tensor::Operation<T>::values(out);
         for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
             const std::size_t a_batch_offset = batch * a.unbatched_size();
             const std::size_t b_batch_offset = (b.batch_size() == 1) ? 0 : batch * b.unbatched_size();
             const std::size_t out_batch_offset = batch * out.unbatched_size();
             for (std::size_t i = 0; i < a.unbatched_size(); i++) {
-                mlfo::tensor::Operation<T>::values(out)[out_batch_offset + i] = (
+                out_values[out_batch_offset + i] = (
                     a.values()[a_batch_offset + i] + b.values()[b_batch_offset + i]
                 );
             }
@@ -38,13 +39,16 @@ private:
         Tensor<T>& b
     ) {
         // propagate gradients to a and b
+        // if b is broadcast, its gradients accumulate over the batch
+        auto& a_gradients = mlfo::tensor::Operation<T>::gradients(a);
+        auto& b_gradients = mlfo::tensor::Operation<T>::gradients(b);
         for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
             const std::size_t a_batch_offset = batch * a.unbatched_size();
             const std::size_t b_batch_offset = (b.batch_size() == 1) ? 0 : batch * b.unbatched_size();
             const std::size_t out_batch_offset = batch * out.unbatched_size();
             for (std::size_t i = 0; i < a.unbatched_size(); i++) {
-                mlfo::tensor::Operation<T>::gradients(a)[a_batch_offset + i] += out.gradients()[out_batch_offset + i];
-                mlfo::tensor::Operation<T>::gradients(b)[b_batch_offset + i] += out.gradients()[out_batch_offset + i];
+                a_gradients[a_batch_offset + i] += out.gradients()[out_batch_offset + i];
+                b_gradients[b_batch_offset + i] += out.gradients()[out_batch_offset + i];
             }
         }
     }

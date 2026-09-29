@@ -8,8 +8,6 @@
 #include "../../misc/concepts.hpp"
 #include "../tensor.hpp"
 
-#define BLOCK_SIZE 32
-
 namespace mlfo::tensor::ops {
 
 template <misc::Number T>
@@ -20,32 +18,28 @@ private:
         const Tensor<T>& a,
         const Tensor<T>& b
     ) {
-        // perform element-wise multiplication
-        // broadcast b to the shape of a if necessary
+        // out = a * b, with a (m, n), b (n, p), out (m, p) for each batch
+        // b is broadcast if its batch size is 1
+        auto& out_values = mlfo::tensor::Operation<T>::values(out);
+        const std::size_t m = a.shape()[0];
+        const std::size_t n = a.shape()[1];
+        const std::size_t p = b.shape()[1];
         for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
             const std::size_t a_batch_offset = batch * a.unbatched_size();
             const std::size_t b_batch_offset = (
                 b.batch_size() == 1
             ) ? 0 : batch * b.unbatched_size();
             const std::size_t out_batch_offset = batch * out.unbatched_size();
-            // blocked matrix multiplication (32 x 32 blocks)
-            for (std::size_t i = 0; i < a.unbatched_size(); i += BLOCK_SIZE) {
-                for (std::size_t j = 0; j < a.unbatched_size(); j += BLOCK_SIZE) {
-                    for (std::size_t k = 0; k < a.unbatched_size(); k += BLOCK_SIZE) {
-                        const std::size_t i_max = std::min(i + BLOCK_SIZE, a.unbatched_size());
-                        const std::size_t j_max = std::min(j + BLOCK_SIZE, a.unbatched_size());
-                        const std::size_t k_max = std::min(k + BLOCK_SIZE, a.unbatched_size());
-                        for (std::size_t ii = i; ii < i_max; ii++) {
-                            for (std::size_t jj = j; jj < j_max; jj++) {
-                                for (std::size_t kk = k; kk < k_max; kk++) {
-                                    mlfo::tensor::Operation<T>::values(out)[out_batch_offset + ii] += (
-                                        a.values()[a_batch_offset + ii] *
-                                        b.values()[b_batch_offset + kk]
-                                    );
-                                }
-                            }
-                        }
+            for (std::size_t i = 0; i < m; i++) {
+                for (std::size_t j = 0; j < p; j++) {
+                    T sum = 0;
+                    for (std::size_t k = 0; k < n; k++) {
+                        sum += (
+                            a.values()[a_batch_offset + i * n + k] *
+                            b.values()[b_batch_offset + k * p + j]
+                        );
                     }
+                    out_values[out_batch_offset + i * p + j] = sum;
                 }
             }
         }
@@ -56,36 +50,30 @@ private:
         Tensor<T>& a,
         Tensor<T>& b
     ) {
-        // propagate gradients to a and b
+        // a.gradients += out.gradients * b.values^T
+        // b.gradients += a.values^T * out.gradients
+        // if b is broadcast, its gradients accumulate over the batch
+        auto& a_gradients = mlfo::tensor::Operation<T>::gradients(a);
+        auto& b_gradients = mlfo::tensor::Operation<T>::gradients(b);
+        const std::size_t m = a.shape()[0];
+        const std::size_t n = a.shape()[1];
+        const std::size_t p = b.shape()[1];
         for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
             const std::size_t a_batch_offset = batch * a.unbatched_size();
             const std::size_t b_batch_offset = (
                 b.batch_size() == 1
             ) ? 0 : batch * b.unbatched_size();
             const std::size_t out_batch_offset = batch * out.unbatched_size();
-            // a.gradients = out.gradients * b.values^T
-            // b.gradients = a.values^T * out.gradients
-            // blocked matrix multiplication (32 x 32 blocks)
-            for (std::size_t i = 0; i < a.unbatched_size(); i += BLOCK_SIZE) {
-                for (std::size_t j = 0; j < a.unbatched_size(); j += BLOCK_SIZE) {
-                    for (std::size_t k = 0; k < a.unbatched_size(); k += BLOCK_SIZE) {
-                        const std::size_t i_max = std::min(i + BLOCK_SIZE, a.unbatched_size());
-                        const std::size_t j_max = std::min(j + BLOCK_SIZE, a.unbatched_size());
-                        const std::size_t k_max = std::min(k + BLOCK_SIZE, a.unbatched_size());
-                        for (std::size_t ii = i; ii < i_max; ii++) {
-                            for (std::size_t jj = j; jj < j_max; jj++) {
-                                for (std::size_t kk = k; kk < k_max; kk++) {
-                                    mlfo::tensor::Operation<T>::gradients(a)[a_batch_offset + ii] += (
-                                        out.gradients()[out_batch_offset + ii] *
-                                        b.values()[b_batch_offset + kk]
-                                    );
-                                    mlfo::tensor::Operation<T>::gradients(b)[b_batch_offset + kk] += (
-                                        a.values()[a_batch_offset + ii] *
-                                        out.gradients()[out_batch_offset + ii]
-                                    );
-                                }
-                            }
-                        }
+            for (std::size_t i = 0; i < m; i++) {
+                for (std::size_t j = 0; j < p; j++) {
+                    const T out_gradient = out.gradients()[out_batch_offset + i * p + j];
+                    for (std::size_t k = 0; k < n; k++) {
+                        a_gradients[a_batch_offset + i * n + k] += (
+                            out_gradient * b.values()[b_batch_offset + k * p + j]
+                        );
+                        b_gradients[b_batch_offset + k * p + j] += (
+                            a.values()[a_batch_offset + i * n + k] * out_gradient
+                        );
                     }
                 }
             }
@@ -100,10 +88,22 @@ public:
         Tensor<T>& a,
         Tensor<T>& b
     ) {
+        // a is (batch_size, m, n), b is (batch_size, n, p), out is (batch_size, m, p)
+        // b can be broadcasted if its batch size is 1
         // check that the shapes of a, b, and out are compatible
-        if (a.shape() != b.shape() || a.shape() != out.shape()) {
+        if (a.rank() != 2 || b.rank() != 2 || out.rank() != 2) {
             throw std::invalid_argument(
-                "[tensor::ops::add] Shapes of input tensors must be the same"
+                "[tensor::ops::mul] Input tensors must be 2D"
+            );
+        }
+        if (a.shape()[1] != b.shape()[0]) {
+            throw std::invalid_argument(
+                "[tensor::ops::mul] Shapes of input tensors are not compatible for multiplication"
+            );
+        }
+        if (out.shape()[0] != a.shape()[0] || out.shape()[1] != b.shape()[1]) {
+            throw std::invalid_argument(
+                "[tensor::ops::mul] Shape of output tensor is not compatible with input tensors"
             );
         }
         // check that the batch sizes of a, b, and out are compatible
