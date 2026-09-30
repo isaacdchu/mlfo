@@ -1,5 +1,5 @@
-#ifndef DENSE_HPP
-#define DENSE_HPP
+#ifndef DENSE_LAYER_HPP
+#define DENSE_LAYER_HPP
 
 #include <vector>
 
@@ -16,9 +16,6 @@ class DenseLayer : public mlfo::layer::Layer<T> {
 private:
     std::size_t input_size_;
     std::size_t output_size_;
-    mlfo::graph::Node<mlfo::tensor::Tensor<T>>* weight_ = nullptr;
-    mlfo::graph::Node<mlfo::tensor::Tensor<T>>* bias_ = nullptr;
-    mlfo::graph::Node<mlfo::tensor::Tensor<T>>* output_ = nullptr;
 public:
     DenseLayer(std::size_t input_size, std::size_t output_size) :
     input_size_(input_size),
@@ -78,13 +75,10 @@ public:
                 );
             }
         );
-        weight_ = &weight_node;
-        bias_ = &bias_node;
-        output_ = &output_node;
         return output_node;
     }
 };
 
 } // namespace mlfo::layer
 
-#endif // DENSE_HPP
+#endif // DENSE_LAYER_HPP
