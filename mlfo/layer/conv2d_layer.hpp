@@ -108,20 +108,21 @@ public:
         // conv2d operation: input -> prebias
         prebias_node.add_predecessors(
             {input, weight_node},
-            [
+            [ 
                 &prebias_node_tensor = prebias_node.data(),
                 &input_node_tensor = input.data(),
-                &weight_node_tensor = weight_node.data()
+                &weight_node_tensor = weight_node.data(),
+                this
             ](mlfo::tensor::ops::DIRECTION direction) -> void {
                 mlfo::tensor::ops::Conv2D<T>::call(
                     direction,
                     prebias_node_tensor,
                     input_node_tensor,
                     weight_node_tensor,
-                    stride_h_,
-                    stride_w_,
-                    padding_h_,
-                    padding_w_
+                    this->stride_h_,
+                    this->stride_w_,
+                    this->padding_h_,
+                    this->padding_w_
                 );
             }
         );

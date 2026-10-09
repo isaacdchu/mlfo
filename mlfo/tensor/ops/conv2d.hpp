@@ -68,7 +68,7 @@ public:
         std::size_t stride_h,
         std::size_t stride_w,
         std::size_t padding_h,
-        std::size_t padding_w,
+        std::size_t padding_w
     ) {
         // todo
         switch (direction) {
