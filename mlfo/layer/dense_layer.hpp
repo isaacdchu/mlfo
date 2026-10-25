@@ -28,7 +28,7 @@ public:
 
     mlfo::graph::Node<mlfo::tensor::Tensor<T>>& build(
         mlfo::graph::Graph<mlfo::tensor::Tensor<T>>& graph,
-        mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input
+        mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input_node
     ) override {
         auto& weight_node = graph.add_node(
             mlfo::tensor::Tensor<T>(1, std::vector<std::size_t>{input_size_, output_size_})
@@ -44,10 +44,10 @@ public:
             mlfo::tensor::Tensor<T>(1, std::vector<std::size_t>{1, output_size_})
         );
         prebias_node.add_predecessors(
-            {input, weight_node},
+            {input_node, weight_node},
             [
                 &prebias_node_tensor = prebias_node.data(),
-                &input_node_tensor = input.data(),
+                &input_node_tensor = input_node.data(),
                 &weight_node_tensor = weight_node.data()
             ](mlfo::tensor::ops::DIRECTION direction) -> void {
                 // input * weight
@@ -75,7 +75,18 @@ public:
                 );
             }
         );
+        this->parameters_.clear();
+        this->parameters_.push_back(weight_node.data());
+        this->parameters_.push_back(bias_node.data());
         return output_node;
+    }
+
+    const std::vector<std::reference_wrapper<mlfo::tensor::Tensor<T>>>& parameters() const override {
+        // return the weight and bias tensors
+        if (this->parameters_.empty()) {
+            throw std::logic_error("[mlfo::layer::DenseLayer::parameters] Layer has not been built");
+        }
+        return this->parameters_;
     }
 };
 

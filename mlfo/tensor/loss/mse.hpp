@@ -45,20 +45,22 @@ private:
         Tensor<T>& b
     ) {
         // propagate gradients to a and b
-        // dL/da = (a - b) / n = dL/db
+        // dL/da = (a - b) / n = -dL/db
         auto& a_gradients = mlfo::tensor::Operation<T>::gradients(a);
         auto& b_gradients = mlfo::tensor::Operation<T>::gradients(b);
         for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
             const std::size_t a_batch_offset = batch * a.unbatched_size();
             const std::size_t b_batch_offset = batch * b.unbatched_size();
             const std::size_t out_batch_offset = batch * out.unbatched_size();
+            // one loss value per batch, so one upstream gradient per batch
+            const T scale = out.gradients()[out_batch_offset] / static_cast<T>(a.unbatched_size());
             for (std::size_t i = 0; i < a.unbatched_size(); i++) {
                 const T error = (
                     a.values()[a_batch_offset + i] -
                     b.values()[b_batch_offset + i]
                 );
-                a_gradients[a_batch_offset + i] += error * out.gradients()[out_batch_offset + i];
-                b_gradients[b_batch_offset + i] += error * out.gradients()[out_batch_offset + i];
+                a_gradients[a_batch_offset + i] += error * scale;
+                b_gradients[b_batch_offset + i] -= error * scale;
             }
         }
     }
@@ -66,15 +68,20 @@ private:
 public:
     MSE() = delete;
     static void call(
-        DIRECTION direction,
+        ops::DIRECTION direction,
         Tensor<T>& out,
         Tensor<T>& a,
         Tensor<T>& b
     ) {
-        // check that the shapes of a, b, and out are compatible
-        if (a.shape() != b.shape() || a.shape() != out.shape()) {
+        // check that the shapes of a and b match, and that out holds one value per batch
+        if (a.shape() != b.shape()) {
             throw std::invalid_argument(
                 "[tensor::ops::mse] Shapes of input tensors must be the same"
+            );
+        }
+        if (out.unbatched_size() != 1) {
+            throw std::invalid_argument(
+                "[tensor::ops::mse] Output tensor must hold a single value per batch"
             );
         }
         // check that the batch sizes of a, b, and out are compatible
@@ -85,10 +92,10 @@ public:
             );
         }
         switch (direction) {
-            case DIRECTION::FORWARD:
+            case mlfo::tensor::ops::DIRECTION::FORWARD:
                 mse_forward(out, a, b);
                 return;
-            case DIRECTION::BACKWARD:
+            case mlfo::tensor::ops::DIRECTION::BACKWARD:
                 mse_backward(out, a, b);
                 return;
             default:

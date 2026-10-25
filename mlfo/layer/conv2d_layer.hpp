@@ -82,7 +82,7 @@ public:
 
     mlfo::graph::Node<mlfo::tensor::Tensor<T>>& build(
         mlfo::graph::Graph<mlfo::tensor::Tensor<T>>& graph,
-        mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input
+        mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input_node
     ) override {
         auto& weight_node = graph.add_node(
             mlfo::tensor::Tensor<T>(
@@ -107,10 +107,10 @@ public:
         );
         // conv2d operation: input -> prebias
         prebias_node.add_predecessors(
-            {input, weight_node},
+            {input_node, weight_node},
             [ 
                 &prebias_node_tensor = prebias_node.data(),
-                &input_node_tensor = input.data(),
+                &input_node_tensor = input_node.data(),
                 &weight_node_tensor = weight_node.data(),
                 this
             ](mlfo::tensor::ops::DIRECTION direction) -> void {
@@ -142,7 +142,14 @@ public:
                 );
             }
         );
+        this->parameters_.clear();
+        this->parameters_.push_back(weight_node.data());
+        this->parameters_.push_back(bias_node.data());
         return output_node;
+    }
+
+    const std::vector<std::reference_wrapper<mlfo::tensor::Tensor<T>>>& parameters() const override {
+        return this->parameters_;
     }
 };
 

@@ -19,6 +19,8 @@ protected:
     // shapes of the tensors this layer consumes and produces, set by the derived class
     std::vector<std::size_t> input_shape_;
     std::vector<std::size_t> output_shape_;
+    // the parameters of this layer, set by build() and used by an optimizer
+    std::vector<std::reference_wrapper<mlfo::tensor::Tensor<T>>> parameters_;
 public:
     virtual ~Layer() = default;
 
@@ -34,8 +36,10 @@ public:
     // returns the layer's output node, which is the next layer's input node
     virtual mlfo::graph::Node<mlfo::tensor::Tensor<T>>& build(
         mlfo::graph::Graph<mlfo::tensor::Tensor<T>>& graph,
-        mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input
+        mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input_node
     ) = 0;
+
+    virtual const std::vector<std::reference_wrapper<mlfo::tensor::Tensor<T>>>& parameters() const = 0;
 };
 
 } // namespace mlfo::layer

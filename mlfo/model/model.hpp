@@ -1,11 +1,13 @@
 #ifndef MODEL_HPP
 #define MODEL_HPP
 
+#include <algorithm>
 #include <vector>
 #include <memory>
 #include <functional>
 #include <stdexcept>
 #include <utility>
+#include <string>
 
 #include "../layer/layer.hpp"
 #include "../layer/loss/loss_layer.hpp"
@@ -18,7 +20,7 @@ namespace mlfo::model {
 // owns the layers and the single graph containing every node of the network
 template <misc::Number T>
 class Model {
-private:
+protected:
     std::vector<std::unique_ptr<mlfo::layer::Layer<T>>> layers_;
     // optional loss layer
     std::unique_ptr<mlfo::layer::loss::LossLayer<T>> loss_;
@@ -28,6 +30,8 @@ private:
     std::vector<mlfo::graph::Node<mlfo::tensor::Tensor<T>>*> outputs_;
     // cached views of the output tensors, set by build()
     std::vector<std::reference_wrapper<const mlfo::tensor::Tensor<T>>> output_tensors_;
+    // model parameters, set by build() and used by an optimizer
+    std::vector<std::reference_wrapper<mlfo::tensor::Tensor<T>>> parameters_;
     // flag to indicate whether the model has been built
     // if not, build() must be called before forward() or backward()
     bool built_;
@@ -69,19 +73,28 @@ public:
         }
         // add loss layer if present
         if (loss_) {
-            // create a new input node for the labels, shaped by the loss layer's input shape
-            inputs_.push_back(
-                &graph_.add_node(mlfo::tensor::Tensor<T>(1, loss_->input_shape()))
-            );
-            current = &loss_->build(graph_, *inputs_.back());
+            //                +------- model output
+            //                |
+            // model output --+--+
+            //                   |---- loss output
+            //        label -----+
+            // loss's input is model's output + label, the label node is owned by the loss layer
+            current = &loss_->build(graph_, *current);
             outputs_.push_back(current);
             output_tensors_.push_back(current->data());
         }
         // topologically sort the graph
         graph_.finalize();
+        // collect parameters from all layers
+        parameters_.clear();
+        for (const auto& layer : layers_) {
+            for (const auto& param_ref : layer->parameters()) {
+                parameters_.push_back(param_ref);
+            }
+        }
+        // mark the model as built
         built_ = true;
     }
-
 
     void set_inputs(std::vector<std::vector<T>>&& values) {
         // sets the values of the input tensors, one flattened vector per input tensor
@@ -113,8 +126,16 @@ public:
         if (values.size() != 1) {
             throw std::invalid_argument("[mlfo::model::Model::set_labels] Wrong number of labels");
         }
-        inputs_.back()->data().set_values(std::move(values[0]));
+        loss_->label_node().data().set_values(std::move(values[0]));
         // mark every node as needing recomputation
+        graph_.invalidate();
+    }
+
+    void invalidate() {
+        // marks every node as needing recomputation, e.g. after an optimizer updated the parameters
+        if (!built_) {
+            throw std::logic_error("[mlfo::model::Model::invalidate] Model has not been built");
+        }
         graph_.invalidate();
     }
 
@@ -137,7 +158,43 @@ public:
         if (!built_) {
             throw std::logic_error("[mlfo::model::Model::backward] Model has not been built");
         }
+        // set loss gradients to 1
+        if (!loss_) {
+            throw std::logic_error("[mlfo::model::Model::backward] Model has no loss layer");
+        }
+        // ops accumulate into their inputs' gradients, so clear the gradients left over from
+        // the previous backward(). parameter gradients are kept, they are cleared by the
+        // optimizer's zero_grad() so that they can be accumulated over several backward() calls
+        for (const auto& node : graph_.nodes()) {
+            auto& tensor = node->data();
+            const bool is_parameter = std::ranges::any_of(
+                parameters_,
+                [&tensor](const auto& param_ref) {
+                    return &param_ref.get() == &tensor;
+                }
+            );
+            if (!is_parameter) {
+                tensor.zero_grad();
+            }
+        }
+        // the loss output is the last output node, see build()
+        auto& loss_tensor = outputs_.back()->data();
+        loss_tensor.set_gradients(std::vector<T>(loss_tensor.size(), T{1}));
         graph_.backward();
+    }
+
+    const std::vector<std::reference_wrapper<mlfo::tensor::Tensor<T>>>& parameters() const {
+        if (!built_) {
+            throw std::logic_error("[mlfo::model::Model::inputs] Model has not been built");
+        }
+        return this->parameters_;
+    }
+
+    std::string to_string() const {
+        // todo: print out computational graph and layers
+        // don't print out values, only shapes of tensors and layer types
+        // use reflection for types?
+        return "";
     }
 };
 

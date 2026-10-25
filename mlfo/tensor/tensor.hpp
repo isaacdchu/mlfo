@@ -139,7 +139,7 @@ public:
     void set_values(std::vector<T>&& values) {
         if (values.size() != values_.size()) {
             throw std::invalid_argument(
-                "[mlfo::tensor::Tensor] Number of values does not match the tensor size"
+                "[mlfo::tensor::Tensor::set_values] Number of values does not match the tensor size"
             );
         }
         values_ = std::move(values);
@@ -147,6 +147,21 @@ public:
 
     const std::vector<T>& gradients() const {
         return gradients_;
+    }
+
+    // replaces every gradient (all batches, flattened) by taking ownership of gradients
+    // the size must match exactly. rvalue only so callers cannot copy by accident
+    void set_gradients(std::vector<T>&& gradients) {
+        if (gradients.size() != gradients_.size()) {
+            throw std::invalid_argument(
+                "[mlfo::tensor::Tensor::set_gradients] Number of gradients does not match the tensor size"
+            );
+        }
+        gradients_ = std::move(gradients);
+    }
+
+    void zero_grad() {
+        std::fill(gradients_.begin(), gradients_.end(), T{0});
     }
 
     std::size_t rank() const {

@@ -7,7 +7,7 @@
 namespace mlfo::misc {
 
 template <typename T>
-concept Number = std::is_arithmetic_v<T>;
+concept Number = std::is_floating_point_v<T>;
 
 } // namespace mlfo::misc
 

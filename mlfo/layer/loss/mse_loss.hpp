@@ -7,6 +7,8 @@
 #include "../../graph/graph.hpp"
 #include "../../tensor/tensor.hpp"
 #include "../../layer/layer.hpp"
+#include "../../tensor/ops.hpp"
+#include "../../tensor/loss/mse.hpp"
 #include "loss_layer.hpp"
 
 namespace mlfo::layer::loss {
@@ -16,7 +18,7 @@ class MSELoss : public mlfo::layer::loss::LossLayer<T> {
 public:
     MSELoss(std::size_t input_size) {
         // inputs are from model and from labels
-        this->input_shape_ = {input_size * 2};
+        this->input_shape_ = {input_size};
         // output is the mean squared error
         // how to handle multiple inputs?
         // for now, just sum the errors and return a single value
@@ -25,22 +27,29 @@ public:
 
     mlfo::graph::Node<mlfo::tensor::Tensor<T>>& build(
         mlfo::graph::Graph<mlfo::tensor::Tensor<T>>& graph,
-        mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input
+        mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input_node
     ) override {
         auto& output_node = graph.add_node(
             mlfo::tensor::Tensor<T>(1, std::vector<std::size_t>{1})
         );
+        auto& label_node = graph.add_node(
+            // labels are compared element-wise, so they take the input node's shape
+            mlfo::tensor::Tensor<T>(input_node.data().batch_size(), input_node.data().shape())
+        );
+        this->label_node_ = &label_node;
         output_node.add_predecessors(
-            {input},
+            {input_node, label_node},
             [
                 &output_node_tensor = output_node.data(),
-                &input_node_tensor = input.data()
+                &input_node_tensor = input_node.data(),
+                &label_node_tensor = label_node.data()
             ](mlfo::tensor::ops::DIRECTION direction) -> void {
                 // mean squared error
-                mlfo::tensor::ops::MSELoss<T>::call(
+                mlfo::tensor::loss::MSE<T>::call(
                     direction,
                     output_node_tensor,
-                    input_node_tensor
+                    input_node_tensor,
+                    label_node_tensor
                 );
             }
         );

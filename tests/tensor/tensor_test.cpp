@@ -168,11 +168,3 @@ TEST(TensorTemplating, DoubleTensor) {
     EXPECT_EQ(tensor.values()[tensor.flatten_index(1, {2})], 6.5);
     EXPECT_THROW(tensor.set_values({1.0}), std::invalid_argument);
 }
-
-TEST(TensorTemplating, IntTensor) {
-    Tensor<int> tensor(1, Shape{2, 2});
-    EXPECT_EQ(tensor.values(), (std::vector<int>(4, 0)));
-    tensor.set_values({1, 2, 3, 4});
-    EXPECT_EQ(tensor.values(), (std::vector<int>{1, 2, 3, 4}));
-    EXPECT_NE(tensor.to_string().find("shape=[2, 2]"), std::string::npos);
-}

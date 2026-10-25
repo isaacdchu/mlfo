@@ -3,8 +3,7 @@
 
 namespace mlfo::misc {
 
-constexpr float EPSILON_F = 1e-6f;
-constexpr double EPSILON_D = 1e-12;
+constexpr double EPSILON = 1e-7;
 
 } // namespace mlfo::misc
 
