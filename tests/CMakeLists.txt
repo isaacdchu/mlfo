@@ -20,6 +20,8 @@ foreach(test_source ${MLFO_TEST_SOURCES})
     add_executable(${test_name} ${test_source})
     target_include_directories(${test_name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(${test_name} PRIVATE mlfo GTest::gtest_main)
-    target_compile_options(${test_name} PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function -Werror)
+    target_compile_options(${test_name} PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function -Werror
+        # gcc false positive inside std::function at -O2 and up
+        $<$<CXX_COMPILER_ID:GNU>:-Wno-maybe-uninitialized>)
     gtest_discover_tests(${test_name})
 endforeach()

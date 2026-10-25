@@ -9,6 +9,11 @@ target_include_directories(mlfo INTERFACE
 )
 target_compile_features(mlfo INTERFACE cxx_std_23)
 
+# on mingw, std::print's windows terminal support lives in libstdc++exp
+if(MINGW)
+    target_link_libraries(mlfo INTERFACE stdc++exp)
+endif()
+
 add_executable(main main.cpp)
 target_link_libraries(main PRIVATE mlfo)
 target_compile_options(main PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function -Werror -O2)
