@@ -4,10 +4,10 @@
 #include <cstddef>
 #include <vector>
 
-#include "../tensor/tensor.hpp"
 #include "../graph/graph.hpp"
 #include "../graph/node.hpp"
 #include "../misc/concepts.hpp"
+#include "../tensor/tensor.hpp"
 
 namespace mlfo::layer {
 

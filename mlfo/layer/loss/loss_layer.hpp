@@ -1,14 +1,14 @@
 #ifndef LOSS_LAYER_HPP
 #define LOSS_LAYER_HPP
 
-#include <vector>
-#include <memory>
 #include <cstddef>
+#include <memory>
 #include <stdexcept>
+#include <vector>
 
-#include "../../misc/concepts.hpp"
-#include "../../layer/layer.hpp"
 #include "../../graph/graph.hpp"
+#include "../../layer/layer.hpp"
+#include "../../misc/concepts.hpp"
 
 namespace mlfo::layer::loss {
 
@@ -23,7 +23,9 @@ public:
     // the node holding the labels the input is compared against
     mlfo::graph::Node<mlfo::tensor::Tensor<T>>& label_node() const {
         if (label_node_ == nullptr) {
-            throw std::logic_error("[mlfo::layer::loss::LossLayer::label_node] Layer has not been built");
+            throw std::logic_error(
+                "[mlfo::layer::loss::LossLayer::label_node] Layer has not been built"
+            );
         }
         return *label_node_;
     }

@@ -2,18 +2,18 @@
 #define MODEL_HPP
 
 #include <algorithm>
-#include <vector>
-#include <memory>
 #include <functional>
+#include <memory>
 #include <stdexcept>
-#include <utility>
 #include <string>
+#include <utility>
+#include <vector>
 
+#include "../graph/graph.hpp"
 #include "../layer/layer.hpp"
 #include "../layer/loss/loss_layer.hpp"
-#include "../graph/graph.hpp"
-#include "../tensor/tensor.hpp"
 #include "../misc/concepts.hpp"
+#include "../tensor/tensor.hpp"
 
 namespace mlfo::model {
 

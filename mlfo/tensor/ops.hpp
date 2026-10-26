@@ -5,7 +5,7 @@
 
 #include "../misc/concepts.hpp"
 #include "ops/add.hpp"
-#include "ops/mul.hpp"
 #include "ops/conv2d.hpp"
+#include "ops/mul.hpp"
 
 #endif // OPS_HPP

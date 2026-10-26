@@ -1,14 +1,14 @@
 #ifndef ACTIVATION_LAYER_HPP
 #define ACTIVATION_LAYER_HPP
 
-#include <vector>
-#include <memory>
 #include <cstddef>
+#include <memory>
 #include <stdexcept>
+#include <vector>
 
-#include "../../misc/concepts.hpp"
-#include "../../layer/layer.hpp"
 #include "../../graph/graph.hpp"
+#include "../../layer/layer.hpp"
+#include "../../misc/concepts.hpp"
 
 namespace mlfo::layer::activation {
 

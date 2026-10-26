@@ -1,9 +1,9 @@
 #ifndef MSE_HPP
 #define MSE_HPP
 
-#include <vector>
-#include <memory>
 #include <concepts>
+#include <memory>
+#include <vector>
 
 #include "../../misc/concepts.hpp"
 #include "../tensor.hpp"

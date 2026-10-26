@@ -1,12 +1,12 @@
 #ifndef GRAPH_HPP
 #define GRAPH_HPP
 
-#include <ranges>
 #include <memory>
-#include <vector>
-#include <utility>
+#include <ranges>
 #include <stdexcept>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "node.hpp"
 
@@ -61,7 +61,7 @@ public:
             nodes_.push_back(std::move(owned[node]));
         }
     }
-    
+
     // marks every node as needing recomputation, e.g. after an input changed
     void invalidate() {
         for (auto& node : nodes_) {

@@ -1,11 +1,12 @@
-#include <print>
 #include <iostream>
+#include <print>
 
 #include <mlfo>
 
 int main() {
     std::vector<std::unique_ptr<mlfo::layer::Layer<float>>> layers;
     layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(3, 2));
+    layers.push_back(std::make_unique<mlfo::layer::activation::ReLUActivation<float>>());
     layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(2, 4));
     auto loss = std::make_unique<mlfo::layer::loss::MSELoss<float>>(4);
     auto model = mlfo::model::Model<float>(std::move(layers), std::move(loss));

@@ -3,8 +3,8 @@
 
 #include <functional>
 #include <memory>
-#include <vector>
 #include <utility>
+#include <vector>
 
 #include "../tensor/ops.hpp"
 

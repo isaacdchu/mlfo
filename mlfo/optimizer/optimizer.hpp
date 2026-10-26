@@ -1,15 +1,15 @@
 #ifndef OPTIMIZER_HPP
 #define OPTIMIZER_HPP
 
-#include <vector>
+#include <functional>
 #include <memory>
 #include <utility>
-#include <functional>
+#include <vector>
 
 #include "../misc/concepts.hpp"
 #include "../model/model.hpp"
-#include "../tensor/tensor.hpp"
 #include "../tensor/ops.hpp"
+#include "../tensor/tensor.hpp"
 
 namespace mlfo::optimizer {
 

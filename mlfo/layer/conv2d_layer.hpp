@@ -1,13 +1,13 @@
 #ifndef CONV2D_LAYER_HPP
 #define CONV2D_LAYER_HPP
 
-#include <vector>
 #include <cstddef>
+#include <vector>
 
-#include "../misc/concepts.hpp"
 #include "../graph/graph.hpp"
-#include "../tensor/tensor.hpp"
+#include "../misc/concepts.hpp"
 #include "../tensor/ops.hpp"
+#include "../tensor/tensor.hpp"
 #include "layer.hpp"
 
 namespace mlfo::layer {
@@ -108,7 +108,7 @@ public:
         // conv2d operation: input -> prebias
         prebias_node.add_predecessors(
             {input_node, weight_node},
-            [ 
+            [
                 &prebias_node_tensor = prebias_node.data(),
                 &input_node_tensor = input_node.data(),
                 &weight_node_tensor = weight_node.data(),

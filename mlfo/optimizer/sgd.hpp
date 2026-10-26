@@ -1,16 +1,16 @@
 #ifndef SGD_HPP
 #define SGD_HPP
 
-#include <vector>
 #include <cstddef>
-#include <memory>
 #include <functional>
+#include <memory>
+#include <vector>
 
-#include "optimizer.hpp"
 #include "../misc/concepts.hpp"
 #include "../model/model.hpp"
-#include "../tensor/tensor.hpp"
 #include "../tensor/ops.hpp"
+#include "../tensor/tensor.hpp"
+#include "optimizer.hpp"
 
 namespace mlfo::optimizer {
 

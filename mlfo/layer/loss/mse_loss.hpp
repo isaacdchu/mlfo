@@ -3,12 +3,12 @@
 
 #include <cstddef>
 
-#include "../../misc/concepts.hpp"
 #include "../../graph/graph.hpp"
-#include "../../tensor/tensor.hpp"
 #include "../../layer/layer.hpp"
-#include "../../tensor/ops.hpp"
+#include "../../misc/concepts.hpp"
 #include "../../tensor/loss/mse.hpp"
+#include "../../tensor/ops.hpp"
+#include "../../tensor/tensor.hpp"
 #include "loss_layer.hpp"
 
 namespace mlfo::layer::loss {

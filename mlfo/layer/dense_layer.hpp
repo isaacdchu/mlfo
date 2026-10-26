@@ -3,10 +3,10 @@
 
 #include <vector>
 
-#include "../misc/concepts.hpp"
 #include "../graph/graph.hpp"
-#include "../tensor/tensor.hpp"
+#include "../misc/concepts.hpp"
 #include "../tensor/ops.hpp"
+#include "../tensor/tensor.hpp"
 #include "layer.hpp"
 
 namespace mlfo::layer {
@@ -84,7 +84,9 @@ public:
     const std::vector<std::reference_wrapper<mlfo::tensor::Tensor<T>>>& parameters() const override {
         // return the weight and bias tensors
         if (this->parameters_.empty()) {
-            throw std::logic_error("[mlfo::layer::DenseLayer::parameters] Layer has not been built");
+            throw std::logic_error(
+                "[mlfo::layer::DenseLayer::parameters] Layer has not been built"
+            );
         }
         return this->parameters_;
     }

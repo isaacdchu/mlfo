@@ -1,9 +1,9 @@
 #ifndef CONV2D_HPP
 #define CONV2D_HPP
 
-#include <vector>
-#include <memory>
 #include <concepts>
+#include <memory>
+#include <vector>
 
 #include "../../misc/concepts.hpp"
 #include "../tensor.hpp"

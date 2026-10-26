@@ -1,15 +1,15 @@
 #ifndef TENSOR_HPP
 #define TENSOR_HPP
 
-#include <array>
 #include <algorithm>
-#include <stdexcept>
-#include <memory>
+#include <array>
 #include <cstddef>
+#include <iostream>
+#include <memory>
+#include <print>
+#include <stdexcept>
 #include <string>
 #include <vector>
-#include <print>
-#include <iostream>
 
 #include "../misc/concepts.hpp"
 
@@ -40,7 +40,7 @@ protected:
 
 template <mlfo::misc::Number T>
 class Tensor {
-friend struct Operation<T>;
+    friend struct Operation<T>;
 private:
     std::vector<T> values_;
     std::vector<T> gradients_;
