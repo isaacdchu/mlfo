@@ -14,9 +14,6 @@ namespace mlfo::layer::activation {
 
 template <mlfo::misc::Number T>
 class ActivationLayer : public mlfo::layer::Layer<T> {
-protected:
-    // non-owning, set by build(); the node is owned by the graph
-    mlfo::graph::Node<mlfo::tensor::Tensor<T>>* label_node_ = nullptr;
 public:
     virtual ~ActivationLayer() = default;
 

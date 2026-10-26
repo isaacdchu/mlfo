@@ -16,7 +16,7 @@ namespace mlfo::layer {
 template <mlfo::misc::Number T>
 class Layer {
 protected:
-    // shapes of the tensors this layer consumes and produces, set by the derived class
+    // unbatched shapes of the tensors this layer consumes and produces, set by the derived class
     std::vector<std::size_t> input_shape_;
     std::vector<std::size_t> output_shape_;
     // the parameters of this layer, set by build() and used by an optimizer

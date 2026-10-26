@@ -9,6 +9,9 @@ FetchContent_MakeAvailable(googletest)
 
 include(GoogleTest)
 
+# builds every test without main: cmake --build build --target mlfo_tests
+add_custom_target(mlfo_tests)
+
 # every *_test.cpp under tests/ becomes its own executable, so adding a test only
 # requires adding the file. the target name is the file path with / replaced by _,
 # e.g. tests/tensor/ops/add_test.cpp -> tensor_ops_add_test
@@ -18,6 +21,7 @@ foreach(test_source ${MLFO_TEST_SOURCES})
     string(REPLACE ".cpp" "" test_name ${test_name})
     string(REPLACE "/" "_" test_name ${test_name})
     add_executable(${test_name} ${test_source})
+    add_dependencies(mlfo_tests ${test_name})
     target_include_directories(${test_name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(${test_name} PRIVATE mlfo GTest::gtest_main)
     target_compile_options(${test_name} PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function -Werror
