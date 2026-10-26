@@ -5,6 +5,7 @@
 #include "graph/node.hpp"
 #include "layer/activation/activation_layer.hpp"
 #include "layer/activation/relu_activation.hpp"
+#include "layer/activation/sigmoid_activation.hpp"
 #include "layer/conv2d_layer.hpp"
 #include "layer/dense_layer.hpp"
 #include "layer/layer.hpp"

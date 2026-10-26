@@ -1,8 +1,11 @@
 #ifndef RELU_ACTIVATION_HPP
 #define RELU_ACTIVATION_HPP
 
+#include <algorithm>
+#include <concepts>
 #include <cstddef>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include "../../graph/graph.hpp"
