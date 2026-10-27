@@ -14,10 +14,10 @@ int main() {
     auto model = mlfo::model::Model<float>(std::move(layers), std::move(loss));
     model.build();
     auto optim = mlfo::optimizer::SGD<float>(model, 0.01f);
-    std::vector<std::vector<float>> inputs;
-    inputs.push_back({1, 2, 3});
-    model.set_inputs(std::move(inputs));
-    model.set_labels({{0, 1, 0, 0}});
+    const std::vector<float> x = {1, 2, 3};
+    const std::vector<float> y = {0, 1, 0, 0};
+    model.set_inputs({x});
+    model.set_labels({y});
     model.forward();
     model.backward();
     optim.step();

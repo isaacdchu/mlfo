@@ -4,9 +4,11 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <initializer_list>
 #include <iostream>
 #include <memory>
 #include <print>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -134,34 +136,48 @@ public:
         return values_;
     }
 
-    // replaces every value (all batches, flattened) by taking ownership of values
-    // the size must match exactly. rvalue only so callers cannot copy by accident
-    void set_values(std::vector<T>&& values) {
+    // replaces every value (all batches, flattened) by copying into the existing buffer
+    // the size must match exactly. never allocates, so it is safe to call in a training loop
+    void set_values(std::span<const T> values) {
         if (values.size() != values_.size()) {
             throw std::invalid_argument(
                 "[mlfo::tensor::Tensor::set_values] Number of values does not match the tensor size"
             );
         }
-        values_ = std::move(values);
+        std::ranges::copy(values, values_.begin());
+    }
+
+    // allows braced lists, e.g. set_values({1, 2, 3}), which a span cannot be built from
+    void set_values(std::initializer_list<T> values) {
+        set_values(std::span<const T>(values.begin(), values.size()));
     }
 
     const std::vector<T>& gradients() const {
         return gradients_;
     }
 
-    // replaces every gradient (all batches, flattened) by taking ownership of gradients
-    // the size must match exactly. rvalue only so callers cannot copy by accident
-    void set_gradients(std::vector<T>&& gradients) {
+    // replaces every gradient (all batches, flattened) by copying into the existing buffer
+    // the size must match exactly. never allocates
+    void set_gradients(std::span<const T> gradients) {
         if (gradients.size() != gradients_.size()) {
             throw std::invalid_argument(
                 "[mlfo::tensor::Tensor::set_gradients] Number of gradients does not match the tensor size"
             );
         }
-        gradients_ = std::move(gradients);
+        std::ranges::copy(gradients, gradients_.begin());
+    }
+
+    void set_gradients(std::initializer_list<T> gradients) {
+        set_gradients(std::span<const T>(gradients.begin(), gradients.size()));
+    }
+
+    // sets every gradient to value, e.g. 1 to seed backward() from a loss
+    void fill_gradients(T value) {
+        std::fill(gradients_.begin(), gradients_.end(), value);
     }
 
     void zero_grad() {
-        std::fill(gradients_.begin(), gradients_.end(), T{0});
+        fill_gradients(T{0});
     }
 
     std::size_t rank() const {

@@ -65,8 +65,10 @@ TEST(SGD, ZeroGradClearsGradients) {
 TEST(SGD, StepInvalidatesModel) {
     Model model = make_model();
     SGD optim(model, 0.1f);
-    model.set_inputs({{2}});
-    model.set_labels({{1}});
+    const std::vector<float> x = {2};
+    const std::vector<float> y = {1};
+    model.set_inputs({x});
+    model.set_labels({y});
     model.forward();
     // output = 0; loss = 0.5 * 1
     EXPECT_FLOAT_EQ(loss(model), 0.5f);
@@ -81,8 +83,10 @@ TEST(SGD, StepInvalidatesModel) {
 TEST(SGD, GradientsAccumulateWithoutZeroGrad) {
     Model model = make_model();
     SGD optim(model, 0.1f);
-    model.set_inputs({{2}});
-    model.set_labels({{1}});
+    const std::vector<float> x = {2};
+    const std::vector<float> y = {1};
+    model.set_inputs({x});
+    model.set_labels({y});
     for (int i = 0; i < 2; i++) {
         // invalidate so that backward() runs again on the same inputs
         model.invalidate();
@@ -106,8 +110,10 @@ TEST(SGD, GradientsAccumulateWithoutZeroGrad) {
 TEST(SGD, TrainingReducesLoss) {
     Model model = make_model();
     SGD optim(model, 0.1f);
-    model.set_inputs({{2}});
-    model.set_labels({{1}});
+    const std::vector<float> x = {2};
+    const std::vector<float> y = {1};
+    model.set_inputs({x});
+    model.set_labels({y});
     model.forward();
     float previous = loss(model);
     for (int i = 0; i < 10; i++) {

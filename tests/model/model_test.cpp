@@ -31,16 +31,16 @@ public:
     // sets the parameters of the last dense layer, and of the one before it
     // by walking the wiring back from the output node
     void set_parameters(
-        std::vector<float> w1, std::vector<float> b1,
-        std::vector<float> w2, std::vector<float> b2
+        const std::vector<float>& w1, const std::vector<float>& b1,
+        const std::vector<float>& w2, const std::vector<float>& b2
     ) {
         Node& output = *outputs_.front();
         Node& prebias2 = output.predecessors()[0].get();
         Node& hidden = prebias2.predecessors()[0].get();
-        hidden.predecessors()[1].get().data().set_values(std::move(b1));
-        hidden.predecessors()[0].get().predecessors()[1].get().data().set_values(std::move(w1));
-        output.predecessors()[1].get().data().set_values(std::move(b2));
-        prebias2.predecessors()[1].get().data().set_values(std::move(w2));
+        hidden.predecessors()[1].get().data().set_values(b1);
+        hidden.predecessors()[0].get().predecessors()[1].get().data().set_values(w1);
+        output.predecessors()[1].get().data().set_values(b2);
+        prebias2.predecessors()[1].get().data().set_values(w2);
     }
 };
 
@@ -54,17 +54,16 @@ TEST(Model, BuildWithoutLayersThrows) {
 TEST(Model, SetInputsWrongCountThrows) {
     mlfo::model::Model<float> model(make_layers({{3, 2}}));
     model.build();
-    std::vector<std::vector<float>> none;
-    EXPECT_THROW(model.set_inputs(std::move(none)), std::invalid_argument);
-    std::vector<std::vector<float>> two = {{1, 2, 3}, {1, 2, 3}};
-    EXPECT_THROW(model.set_inputs(std::move(two)), std::invalid_argument);
+    EXPECT_THROW(model.set_inputs({}), std::invalid_argument);
+    const std::vector<float> x = {1, 2, 3};
+    EXPECT_THROW(model.set_inputs({x, x}), std::invalid_argument);
 }
 
 TEST(Model, SetInputsWrongSizeThrows) {
     mlfo::model::Model<float> model(make_layers({{3, 2}}));
     model.build();
-    std::vector<std::vector<float>> inputs = {{1, 2}};
-    EXPECT_THROW(model.set_inputs(std::move(inputs)), std::invalid_argument);
+    const std::vector<float> inputs = {1, 2};
+    EXPECT_THROW(model.set_inputs({inputs}), std::invalid_argument);
 }
 
 TEST(Model, OutputShapeMatchesLastLayer) {
@@ -79,8 +78,8 @@ TEST(Model, OutputShapeMatchesLastLayer) {
 TEST(Model, ForwardWithDefaultParametersIsZero) {
     mlfo::model::Model<float> model(make_layers({{3, 2}, {2, 4}}));
     model.build();
-    std::vector<std::vector<float>> inputs = {{1, 2, 3}};
-    model.set_inputs(std::move(inputs));
+    const std::vector<float> inputs = {1, 2, 3};
+    model.set_inputs({inputs});
     model.forward();
     const auto& values = model.outputs()[0].get().values();
     ASSERT_EQ(values.size(), 4u);
@@ -93,8 +92,8 @@ TEST(Model, ForwardMatchesHandComputation) {
     TestModel model(make_layers({{2, 2}, {2, 1}}));
     model.build();
     model.set_parameters({1, 0, 1, 1}, {0, 1}, {2, 3}, {1});
-    std::vector<std::vector<float>> inputs = {{1, 2}};
-    model.set_inputs(std::move(inputs));
+    const std::vector<float> inputs = {1, 2};
+    model.set_inputs({inputs});
     model.forward();
     // hidden = [3, 3]; output = 2 * 3 + 3 * 3 + 1
     ASSERT_EQ(model.outputs()[0].get().values().size(), 1u);
@@ -105,13 +104,13 @@ TEST(Model, SetInputsRecomputesForward) {
     TestModel model(make_layers({{2, 2}, {2, 1}}));
     model.build();
     model.set_parameters({1, 0, 1, 1}, {0, 1}, {2, 3}, {1});
-    std::vector<std::vector<float>> first = {{1, 2}};
-    model.set_inputs(std::move(first));
+    const std::vector<float> first = {1, 2};
+    model.set_inputs({first});
     model.forward();
     EXPECT_FLOAT_EQ(model.outputs()[0].get().values()[0], 16.0f);
     // x = [0, 1]: hidden = [1, 1] + [0, 1] = [1, 2]; output = 2 + 6 + 1
-    std::vector<std::vector<float>> second = {{0, 1}};
-    model.set_inputs(std::move(second));
+    const std::vector<float> second = {0, 1};
+    model.set_inputs({second});
     model.forward();
     EXPECT_FLOAT_EQ(model.outputs()[0].get().values()[0], 9.0f);
 }

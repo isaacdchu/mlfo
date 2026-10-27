@@ -14,7 +14,7 @@ using mlfo::tests::TensorAccess;
 
 Tensor<float> make(std::size_t batch, std::vector<std::size_t> shape, std::vector<float> values) {
     Tensor<float> t(batch, shape);
-    t.set_values(std::move(values));
+    t.set_values(values);
     return t;
 }
 

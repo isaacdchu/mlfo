@@ -3,7 +3,9 @@
 
 #include <algorithm>
 #include <functional>
+#include <initializer_list>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -32,6 +34,9 @@ protected:
     std::vector<std::reference_wrapper<const mlfo::tensor::Tensor<T>>> output_tensors_;
     // model parameters, set by build() and used by an optimizer
     std::vector<std::reference_wrapper<mlfo::tensor::Tensor<T>>> parameters_;
+    // every tensor in the graph that is not a parameter, set by build()
+    // their gradients are cleared at the start of each backward()
+    std::vector<std::reference_wrapper<mlfo::tensor::Tensor<T>>> non_parameters_;
     // flag to indicate whether the model has been built
     // if not, build() must be called before forward() or backward()
     bool built_;
@@ -92,31 +97,46 @@ public:
                 parameters_.push_back(param_ref);
             }
         }
+        // collect every other tensor, so backward() doesn't search the parameters on each call
+        non_parameters_.clear();
+        for (const auto& node : graph_.nodes()) {
+            auto& tensor = node->data();
+            const bool is_parameter = std::ranges::any_of(
+                parameters_,
+                [&tensor](const auto& param_ref) {
+                    return &param_ref.get() == &tensor;
+                }
+            );
+            if (!is_parameter) {
+                non_parameters_.push_back(tensor);
+            }
+        }
         // mark the model as built
         built_ = true;
     }
 
-    void set_inputs(std::vector<std::vector<T>>&& values) {
-        // sets the values of the input tensors, one flattened vector per input tensor
-        // the vectors are moved into the tensors, never copied. rvalue only, so an lvalue
-        // must be passed with std::move. the next forward() recomputes the whole graph
+    void set_inputs(std::initializer_list<std::span<const T>> values) {
+        // sets the values of the input tensors, one flattened span per input tensor, e.g.
+        // set_inputs({x}). the values are copied into the tensors' existing buffers, so this
+        // never allocates. the next forward() recomputes the whole graph
         if (!built_) {
             throw std::logic_error("[mlfo::model::Model::set_inputs] Model has not been built");
         }
         if (values.size() != inputs_.size()) {
             throw std::invalid_argument("[mlfo::model::Model::set_inputs] Wrong number of inputs");
         }
-        for (std::size_t i = 0; i < inputs_.size(); i++) {
-            inputs_[i]->data().set_values(std::move(values[i]));
+        auto value = values.begin();
+        for (std::size_t i = 0; i < inputs_.size(); i++, value++) {
+            inputs_[i]->data().set_values(*value);
         }
         // mark every node as needing recomputation
         graph_.invalidate();
     }
 
-    void set_labels(std::vector<std::vector<T>>&& values) {
-        // sets the values of the label tensors, one flattened vector per label tensor
-        // the vectors are moved into the tensors, never copied. rvalue only, so an lvalue
-        // must be passed with std::move. the next forward() recomputes the whole graph
+    void set_labels(std::initializer_list<std::span<const T>> values) {
+        // sets the values of the label tensors, one flattened span per label tensor, e.g.
+        // set_labels({y}). the values are copied into the tensors' existing buffers, so this
+        // never allocates. the next forward() recomputes the whole graph
         if (!built_) {
             throw std::logic_error("[mlfo::model::Model::set_labels] Model has not been built");
         }
@@ -126,7 +146,7 @@ public:
         if (values.size() != 1) {
             throw std::invalid_argument("[mlfo::model::Model::set_labels] Wrong number of labels");
         }
-        loss_->label_node().data().set_values(std::move(values[0]));
+        loss_->label_node().data().set_values(*values.begin());
         // mark every node as needing recomputation
         graph_.invalidate();
     }
@@ -165,21 +185,12 @@ public:
         // ops accumulate into their inputs' gradients, so clear the gradients left over from
         // the previous backward(). parameter gradients are kept, they are cleared by the
         // optimizer's zero_grad() so that they can be accumulated over several backward() calls
-        for (const auto& node : graph_.nodes()) {
-            auto& tensor = node->data();
-            const bool is_parameter = std::ranges::any_of(
-                parameters_,
-                [&tensor](const auto& param_ref) {
-                    return &param_ref.get() == &tensor;
-                }
-            );
-            if (!is_parameter) {
-                tensor.zero_grad();
-            }
+        for (const auto& tensor_ref : non_parameters_) {
+            tensor_ref.get().zero_grad();
         }
         // the loss output is the last output node, see build()
         auto& loss_tensor = outputs_.back()->data();
-        loss_tensor.set_gradients(std::vector<T>(loss_tensor.size(), T{1}));
+        loss_tensor.fill_gradients(T{1});
         graph_.backward();
     }
 
