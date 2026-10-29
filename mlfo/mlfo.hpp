@@ -1,6 +1,8 @@
 #ifndef MLFO_HPP
 #define MLFO_HPP
 
+#include "dataset/data_loader.hpp"
+#include "dataset/dataset.hpp"
 #include "graph/graph.hpp"
 #include "graph/node.hpp"
 #include "initializer/constant.hpp"
