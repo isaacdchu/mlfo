@@ -2,9 +2,14 @@
 #define CONV2D_LAYER_HPP
 
 #include <cstddef>
+#include <memory>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include "../graph/graph.hpp"
+#include "../initializer/constant.hpp"
+#include "../initializer/initializer.hpp"
 #include "../misc/concepts.hpp"
 #include "../tensor/ops.hpp"
 #include "../tensor/tensor.hpp"
@@ -33,6 +38,8 @@ private:
     std::size_t padding_w_;
     std::size_t p_;
     std::size_t q_;
+    std::shared_ptr<const mlfo::initializer::Initializer<T>> weight_initializer_;
+    std::shared_ptr<const mlfo::initializer::Initializer<T>> bias_initializer_;
 public:
     Conv2DLayer(
         std::size_t c,
@@ -44,7 +51,11 @@ public:
         std::size_t stride_h = 1,
         std::size_t stride_w = 1,
         std::size_t padding_h = 0,
-        std::size_t padding_w = 0
+        std::size_t padding_w = 0,
+        std::shared_ptr<const mlfo::initializer::Initializer<T>> weight_initializer =
+            std::make_shared<mlfo::initializer::Zeros<T>>(),
+        std::shared_ptr<const mlfo::initializer::Initializer<T>> bias_initializer =
+            std::make_shared<mlfo::initializer::Zeros<T>>()
     ) :
     c_(c),
     h_(h),
@@ -55,7 +66,9 @@ public:
     stride_h_(stride_h),
     stride_w_(stride_w),
     padding_h_(padding_h),
-    padding_w_(padding_w)
+    padding_w_(padding_w),
+    weight_initializer_(std::move(weight_initializer)),
+    bias_initializer_(std::move(bias_initializer))
     {
         // validate parameters
         if (c_ == 0 || h_ == 0 || w_ == 0 || r_ == 0 || s_ == 0 || k_ == 0) {
@@ -66,6 +79,11 @@ public:
         if (stride_h_ == 0 || stride_w_ == 0) {
             throw std::invalid_argument(
                 "[mlfo::layer::Conv2DLayer] Stride must be greater than zero"
+            );
+        }
+        if (!weight_initializer_ || !bias_initializer_) {
+            throw std::invalid_argument(
+                "[mlfo::layer::Conv2DLayer] Initializers cannot be null"
             );
         }
         if (h_ + 2 * padding_h_ < r_ || w_ + 2 * padding_w_ < s_) {
@@ -93,6 +111,10 @@ public:
         auto& bias_node = graph.add_node(
             mlfo::tensor::Tensor<T>(1, std::vector<std::size_t>{k_})
         );
+        // each output value sums one C x R x S window, and each input value is seen by
+        // R x S kernel positions of each of the K kernels
+        weight_initializer_->initialize(weight_node.data(), c_ * r_ * s_, k_ * r_ * s_);
+        bias_initializer_->initialize(bias_node.data(), c_ * r_ * s_, k_ * r_ * s_);
         auto& prebias_node = graph.add_node(
             mlfo::tensor::Tensor<T>(
                 1,

@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <memory>
+#include <random>
+#include <stdexcept>
 #include <vector>
 
 #include "helpers.hpp"
@@ -12,6 +15,7 @@ using Graph = mlfo::graph::Graph<Tensor>;
 using Node = mlfo::graph::Node<Tensor>;
 using Access = mlfo::tests::TensorAccess<float>;
 using Shape = std::vector<std::size_t>;
+using Recorder = mlfo::tests::RecordingInitializer<float>;
 
 // the nodes of a built dense layer, reached through the wiring
 struct DenseNodes {
@@ -138,4 +142,67 @@ TEST(DenseLayer, StackedLayersCompose) {
     EXPECT_FLOAT_EQ(hidden.data().values()[1], 3.0f);
     ASSERT_EQ(output.data().values().size(), 1u);
     EXPECT_FLOAT_EQ(output.data().values()[0], 16.0f);
+}
+
+TEST(DenseLayer, BuildInitializesParametersWithFans) {
+    Graph graph;
+    Node& input = graph.add_node(Tensor(1, Shape{1, 3}));
+    auto weight_init = std::make_shared<Recorder>(2.0f);
+    auto bias_init = std::make_shared<Recorder>(-1.0f);
+    mlfo::layer::DenseLayer<float> layer(3, 2, weight_init, bias_init);
+    Node& output = layer.build(graph, input);
+    DenseNodes nodes = find_nodes(output, input);
+    ASSERT_EQ(weight_init->calls.size(), 1u);
+    EXPECT_EQ(weight_init->calls[0].shape, (Shape{3, 2}));
+    EXPECT_EQ(weight_init->calls[0].fan_in, 3u);
+    EXPECT_EQ(weight_init->calls[0].fan_out, 2u);
+    ASSERT_EQ(bias_init->calls.size(), 1u);
+    EXPECT_EQ(bias_init->calls[0].shape, (Shape{1, 2}));
+    for (float value : nodes.weight->data().values()) {
+        EXPECT_FLOAT_EQ(value, 2.0f);
+    }
+    for (float value : nodes.bias->data().values()) {
+        EXPECT_FLOAT_EQ(value, -1.0f);
+    }
+}
+
+TEST(DenseLayer, SharedInitializerIsUsedByEachLayer) {
+    Graph graph;
+    Node& input = graph.add_node(Tensor(1, Shape{1, 3}));
+    auto weight_init = std::make_shared<Recorder>(1.0f);
+    mlfo::layer::DenseLayer<float> first(3, 4, weight_init);
+    mlfo::layer::DenseLayer<float> second(4, 2, weight_init);
+    second.build(graph, first.build(graph, input));
+    ASSERT_EQ(weight_init->calls.size(), 2u);
+    EXPECT_EQ(weight_init->calls[0].fan_in, 3u);
+    EXPECT_EQ(weight_init->calls[1].fan_in, 4u);
+    EXPECT_EQ(weight_init->calls[1].fan_out, 2u);
+}
+
+TEST(DenseLayer, NullInitializerThrows) {
+    EXPECT_THROW(mlfo::layer::DenseLayer<float>(3, 2, nullptr), std::invalid_argument);
+    EXPECT_THROW(
+        mlfo::layer::DenseLayer<float>(3, 2, std::make_shared<mlfo::initializer::Zeros<float>>(), nullptr),
+        std::invalid_argument
+    );
+}
+
+TEST(DenseLayer, HeInitializedWeightsAreNonZero) {
+    Graph graph;
+    Node& input = graph.add_node(Tensor(1, Shape{1, 8}));
+    mlfo::initializer::Generator generator(0);
+    mlfo::layer::DenseLayer<float> layer(
+        8, 8, std::make_shared<mlfo::initializer::He<std::normal_distribution<float>>>(generator)
+    );
+    Node& output = layer.build(graph, input);
+    DenseNodes nodes = find_nodes(output, input);
+    bool any_non_zero = false;
+    for (float value : nodes.weight->data().values()) {
+        any_non_zero = any_non_zero || value != 0.0f;
+    }
+    EXPECT_TRUE(any_non_zero);
+    // biases keep the zeros default
+    for (float value : nodes.bias->data().values()) {
+        EXPECT_FLOAT_EQ(value, 0.0f);
+    }
 }

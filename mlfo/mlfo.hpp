@@ -3,6 +3,12 @@
 
 #include "graph/graph.hpp"
 #include "graph/node.hpp"
+#include "initializer/constant.hpp"
+#include "initializer/distribution.hpp"
+#include "initializer/he.hpp"
+#include "initializer/initializer.hpp"
+#include "initializer/random.hpp"
+#include "initializer/xavier.hpp"
 #include "layer/activation/activation_layer.hpp"
 #include "layer/activation/relu_activation.hpp"
 #include "layer/activation/sigmoid_activation.hpp"

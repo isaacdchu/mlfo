@@ -1,9 +1,15 @@
 #ifndef DENSE_LAYER_HPP
 #define DENSE_LAYER_HPP
 
+#include <cstddef>
+#include <memory>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include "../graph/graph.hpp"
+#include "../initializer/constant.hpp"
+#include "../initializer/initializer.hpp"
 #include "../misc/concepts.hpp"
 #include "../tensor/ops.hpp"
 #include "../tensor/tensor.hpp"
@@ -16,11 +22,27 @@ class DenseLayer : public mlfo::layer::Layer<T> {
 private:
     std::size_t input_size_;
     std::size_t output_size_;
+    std::shared_ptr<const mlfo::initializer::Initializer<T>> weight_initializer_;
+    std::shared_ptr<const mlfo::initializer::Initializer<T>> bias_initializer_;
 public:
-    DenseLayer(std::size_t input_size, std::size_t output_size) :
+    DenseLayer(
+        std::size_t input_size,
+        std::size_t output_size,
+        std::shared_ptr<const mlfo::initializer::Initializer<T>> weight_initializer =
+            std::make_shared<mlfo::initializer::Zeros<T>>(),
+        std::shared_ptr<const mlfo::initializer::Initializer<T>> bias_initializer =
+            std::make_shared<mlfo::initializer::Zeros<T>>()
+    ) :
     input_size_(input_size),
-    output_size_(output_size)
+    output_size_(output_size),
+    weight_initializer_(std::move(weight_initializer)),
+    bias_initializer_(std::move(bias_initializer))
     {
+        if (!weight_initializer_ || !bias_initializer_) {
+            throw std::invalid_argument(
+                "[mlfo::layer::DenseLayer] Initializers cannot be null"
+            );
+        }
         // activations are row vectors (1, n) since Mul requires 2D tensors
         this->input_shape_ = {1, input_size_};
         this->output_shape_ = {1, output_size_};
@@ -37,6 +59,9 @@ public:
         auto& bias_node = graph.add_node(
             mlfo::tensor::Tensor<T>(1, std::vector<std::size_t>{1, output_size_})
         );
+        // each output unit sums input_size_ inputs, and each input feeds output_size_ units
+        weight_initializer_->initialize(weight_node.data(), input_size_, output_size_);
+        bias_initializer_->initialize(bias_node.data(), input_size_, output_size_);
         auto& prebias_node = graph.add_node(
             mlfo::tensor::Tensor<T>(1, std::vector<std::size_t>{1, output_size_})
         );
