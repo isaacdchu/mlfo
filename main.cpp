@@ -126,8 +126,8 @@ int main(int argc, char** argv) {
     layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(120, 84, he));
     layers.push_back(std::make_unique<mlfo::layer::activation::ReLUActivation<float>>());
     layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(84, 10, xavier));
-    // no softmax or cross entropy yet, so the raw outputs are fit to one-hot labels with mse
-    auto loss = std::make_unique<mlfo::layer::loss::MSELoss<float>>(classes);
+    // the last dense layer outputs logits, softmax is applied inside the loss
+    auto loss = std::make_unique<mlfo::layer::loss::CrossEntropyLoss<float>>(classes);
     auto model = mlfo::model::Model<float>(std::move(layers), std::move(loss));
     model.build();
     auto optim = mlfo::optimizer::SGD<float>(model, learning_rate);

@@ -18,6 +18,7 @@
 #include "layer/dense_layer.hpp"
 #include "layer/flatten_layer.hpp"
 #include "layer/layer.hpp"
+#include "layer/loss/cross_entropy_loss.hpp"
 #include "layer/loss/loss_layer.hpp"
 #include "layer/loss/mse_loss.hpp"
 #include "layer/pool/max_pool.hpp"

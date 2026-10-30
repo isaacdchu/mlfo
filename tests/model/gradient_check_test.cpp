@@ -34,14 +34,19 @@ double loss_at(mlfo::model::Model<double>& model) {
     return model.outputs()[1].get().values()[0];
 }
 
-void check_gradients(Layers layers, std::size_t input_size, std::size_t classes) {
+void check_gradients(
+    Layers layers,
+    std::size_t input_size,
+    std::size_t classes,
+    std::unique_ptr<mlfo::layer::loss::LossLayer<double>> loss = nullptr
+) {
     constexpr double epsilon = 1e-6;
     constexpr double tolerance = 1e-6;
     std::mt19937 generator(7);
-    mlfo::model::Model<double> model(
-        std::move(layers),
-        std::make_unique<mlfo::layer::loss::MSELoss<double>>(classes)
-    );
+    if (loss == nullptr) {
+        loss = std::make_unique<mlfo::layer::loss::MSELoss<double>>(classes);
+    }
+    mlfo::model::Model<double> model(std::move(layers), std::move(loss));
     model.build();
     // random parameters, so that no unit is dead and max pool has no ties
     for (const auto& param_ref : model.parameters()) {
@@ -93,6 +98,17 @@ TEST(GradientCheck, Dense) {
     layers.push_back(std::make_unique<mlfo::layer::activation::SigmoidActivation<double>>());
     layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(4, 3));
     check_gradients(std::move(layers), 5, 3);
+}
+
+TEST(GradientCheck, DenseCrossEntropy) {
+    Layers layers;
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(5, 4));
+    layers.push_back(std::make_unique<mlfo::layer::activation::SigmoidActivation<double>>());
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(4, 3));
+    check_gradients(
+        std::move(layers), 5, 3,
+        std::make_unique<mlfo::layer::loss::CrossEntropyLoss<double>>(3)
+    );
 }
 
 TEST(GradientCheck, Conv2D) {
