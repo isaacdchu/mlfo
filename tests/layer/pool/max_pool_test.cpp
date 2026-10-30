@@ -25,20 +25,20 @@ void expect_floats(const std::vector<float>& actual, const std::vector<float>& e
 } // namespace
 
 TEST(MaxPool, HasNoParameters) {
-    MaxPool layer(4, 4, 2, 2, 2, 2);
+    MaxPool layer(2, 2, 2, 2);
     EXPECT_TRUE(layer.parameters().empty());
 }
 
 TEST(MaxPool, RejectsInvalidConstruction) {
-    EXPECT_THROW(MaxPool(0, 4, 2, 2), std::invalid_argument);
-    EXPECT_THROW(MaxPool(4, 4, 0, 2), std::invalid_argument);
-    EXPECT_THROW(MaxPool(4, 4, 2, 2, 0, 1), std::invalid_argument);
+    EXPECT_THROW(MaxPool(0, 2), std::invalid_argument);
+    EXPECT_THROW(MaxPool(2, 0), std::invalid_argument);
+    EXPECT_THROW(MaxPool(2, 2, 0, 1), std::invalid_argument);
 }
 
 TEST(MaxPool, BuildComputesOutputShape) {
     Graph graph;
     Node& input = graph.add_node(Tensor(3, Shape{2, 5, 4}));
-    MaxPool layer(5, 4, 2, 2, 2, 2);
+    MaxPool layer(2, 2, 2, 2);
     Node& output = layer.build(graph, input);
     EXPECT_EQ(graph.size(), 2u);
     EXPECT_EQ(output.data().shape(), (Shape{2, 3, 2}));
@@ -50,22 +50,22 @@ TEST(MaxPool, BuildComputesOutputShape) {
 TEST(MaxPool, StrideDefaultsToWindowSize) {
     Graph graph;
     Node& input = graph.add_node(Tensor(1, Shape{6, 6}));
-    MaxPool layer(6, 6, 2, 3);
+    MaxPool layer(2, 3);
     Node& output = layer.build(graph, input);
     EXPECT_EQ(output.data().shape(), (Shape{3, 2}));
 }
 
-TEST(MaxPool, BuildRejectsMismatchedInput) {
+TEST(MaxPool, BuildRejectsRankOneInput) {
     Graph graph;
-    Node& input = graph.add_node(Tensor(1, Shape{1, 4, 4}));
-    MaxPool layer(5, 4, 2, 2);
+    Node& input = graph.add_node(Tensor(1, Shape{4}));
+    MaxPool layer(2, 2);
     EXPECT_THROW(layer.build(graph, input), std::invalid_argument);
 }
 
 TEST(MaxPool, ForwardAndBackward) {
     Graph graph;
     Node& input = graph.add_node(Tensor(1, Shape{1, 2, 4}));
-    MaxPool layer(2, 4, 2, 2, 2, 2);
+    MaxPool layer(2, 2, 2, 2);
     Node& output = layer.build(graph, input);
     input.data().set_values({1, 3, 2, 0, 2, 0, 1, 5});
     graph.finalize();
@@ -79,7 +79,7 @@ TEST(MaxPool, ForwardAndBackward) {
 TEST(MaxPool, OneByOneWindowWithStride) {
     Graph graph;
     Node& input = graph.add_node(Tensor(1, Shape{3, 4}));
-    MaxPool layer(3, 4, 1, 1, 2, 2);
+    MaxPool layer(1, 1, 2, 2);
     Node& output = layer.build(graph, input);
     EXPECT_EQ(output.data().shape(), (Shape{2, 2}));
     input.data().set_values({1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12});

@@ -37,16 +37,33 @@ DenseNodes find_nodes(Node& output, Node& input) {
 
 } // namespace
 
-TEST(DenseLayer, Shapes) {
-    mlfo::layer::DenseLayer<float> layer(3, 2);
+TEST(DenseLayer, BuildTakesInputShapeFromInputNode) {
+    Graph graph;
+    Node& input = graph.add_node(Tensor(1, Shape{1, 3}));
+    mlfo::layer::DenseLayer<float> layer(2);
+    EXPECT_EQ(layer.output_shape(), (Shape{1, 2}));
+    layer.build(graph, input);
     EXPECT_EQ(layer.input_shape(), (Shape{1, 3}));
     EXPECT_EQ(layer.output_shape(), (Shape{1, 2}));
+}
+
+TEST(DenseLayer, BuildRejectsNonRowVectorInput) {
+    for (const Shape& shape : {Shape{3}, Shape{2, 3}, Shape{1, 2, 3}}) {
+        Graph graph;
+        Node& input = graph.add_node(Tensor(1, shape));
+        mlfo::layer::DenseLayer<float> layer(2);
+        EXPECT_THROW(layer.build(graph, input), std::invalid_argument);
+    }
+}
+
+TEST(DenseLayer, ZeroOutputSizeThrows) {
+    EXPECT_THROW(mlfo::layer::DenseLayer<float>(0), std::invalid_argument);
 }
 
 TEST(DenseLayer, BuildAddsFourNodes) {
     Graph graph;
     Node& input = graph.add_node(Tensor(1, Shape{1, 3}));
-    mlfo::layer::DenseLayer<float> layer(3, 2);
+    mlfo::layer::DenseLayer<float> layer(2);
     Node& output = layer.build(graph, input);
     EXPECT_EQ(graph.size(), 5u);
     EXPECT_EQ(output.data().shape(), (Shape{1, 2}));
@@ -59,7 +76,7 @@ TEST(DenseLayer, BuildAddsFourNodes) {
 TEST(DenseLayer, ForwardComputesXWPlusB) {
     Graph graph;
     Node& input = graph.add_node(Tensor(1, Shape{1, 2}));
-    mlfo::layer::DenseLayer<float> layer(2, 3);
+    mlfo::layer::DenseLayer<float> layer(3);
     Node& output = layer.build(graph, input);
     DenseNodes nodes = find_nodes(output, input);
     input.data().set_values({1, 2});
@@ -76,7 +93,7 @@ TEST(DenseLayer, ForwardComputesXWPlusB) {
 TEST(DenseLayer, DefaultParametersGiveZeroOutput) {
     Graph graph;
     Node& input = graph.add_node(Tensor(1, Shape{1, 2}));
-    mlfo::layer::DenseLayer<float> layer(2, 3);
+    mlfo::layer::DenseLayer<float> layer(3);
     Node& output = layer.build(graph, input);
     input.data().set_values({4, -7});
     graph.finalize();
@@ -89,7 +106,7 @@ TEST(DenseLayer, DefaultParametersGiveZeroOutput) {
 TEST(DenseLayer, BackwardBatchSizeOne) {
     Graph graph;
     Node& input = graph.add_node(Tensor(1, Shape{1, 2}));
-    mlfo::layer::DenseLayer<float> layer(2, 3);
+    mlfo::layer::DenseLayer<float> layer(3);
     Node& output = layer.build(graph, input);
     DenseNodes nodes = find_nodes(output, input);
     input.data().set_values({1, 2});
@@ -123,8 +140,8 @@ TEST(DenseLayer, BackwardBatchSizeOne) {
 TEST(DenseLayer, StackedLayersCompose) {
     Graph graph;
     Node& input = graph.add_node(Tensor(1, Shape{1, 2}));
-    mlfo::layer::DenseLayer<float> first(2, 2);
-    mlfo::layer::DenseLayer<float> second(2, 1);
+    mlfo::layer::DenseLayer<float> first(2);
+    mlfo::layer::DenseLayer<float> second(1);
     Node& hidden = first.build(graph, input);
     Node& output = second.build(graph, hidden);
     EXPECT_EQ(graph.size(), 9u);
@@ -149,7 +166,7 @@ TEST(DenseLayer, BuildInitializesParametersWithFans) {
     Node& input = graph.add_node(Tensor(1, Shape{1, 3}));
     auto weight_init = std::make_shared<Recorder>(2.0f);
     auto bias_init = std::make_shared<Recorder>(-1.0f);
-    mlfo::layer::DenseLayer<float> layer(3, 2, weight_init, bias_init);
+    mlfo::layer::DenseLayer<float> layer(2, weight_init, bias_init);
     Node& output = layer.build(graph, input);
     DenseNodes nodes = find_nodes(output, input);
     ASSERT_EQ(weight_init->calls.size(), 1u);
@@ -170,8 +187,8 @@ TEST(DenseLayer, SharedInitializerIsUsedByEachLayer) {
     Graph graph;
     Node& input = graph.add_node(Tensor(1, Shape{1, 3}));
     auto weight_init = std::make_shared<Recorder>(1.0f);
-    mlfo::layer::DenseLayer<float> first(3, 4, weight_init);
-    mlfo::layer::DenseLayer<float> second(4, 2, weight_init);
+    mlfo::layer::DenseLayer<float> first(4, weight_init);
+    mlfo::layer::DenseLayer<float> second(2, weight_init);
     second.build(graph, first.build(graph, input));
     ASSERT_EQ(weight_init->calls.size(), 2u);
     EXPECT_EQ(weight_init->calls[0].fan_in, 3u);
@@ -180,9 +197,9 @@ TEST(DenseLayer, SharedInitializerIsUsedByEachLayer) {
 }
 
 TEST(DenseLayer, NullInitializerThrows) {
-    EXPECT_THROW(mlfo::layer::DenseLayer<float>(3, 2, nullptr), std::invalid_argument);
+    EXPECT_THROW(mlfo::layer::DenseLayer<float>(2, nullptr), std::invalid_argument);
     EXPECT_THROW(
-        mlfo::layer::DenseLayer<float>(3, 2, std::make_shared<mlfo::initializer::Zeros<float>>(), nullptr),
+        mlfo::layer::DenseLayer<float>(2, std::make_shared<mlfo::initializer::Zeros<float>>(), nullptr),
         std::invalid_argument
     );
 }
@@ -192,7 +209,7 @@ TEST(DenseLayer, HeInitializedWeightsAreNonZero) {
     Node& input = graph.add_node(Tensor(1, Shape{1, 8}));
     mlfo::initializer::Generator generator(0);
     mlfo::layer::DenseLayer<float> layer(
-        8, 8, std::make_shared<mlfo::initializer::He<std::normal_distribution<float>>>(generator)
+        8, std::make_shared<mlfo::initializer::He<std::normal_distribution<float>>>(generator)
     );
     Node& output = layer.build(graph, input);
     DenseNodes nodes = find_nodes(output, input);

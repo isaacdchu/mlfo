@@ -116,9 +116,9 @@ TEST_F(DatasetTest, FeedsModel) {
     write("1 2 3 | 0 1 0 0\n");
     Dataset dataset(path_, 1, parse);
     std::vector<std::unique_ptr<mlfo::layer::Layer<float>>> layers;
-    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(3, 4));
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(4));
     mlfo::model::Model<float> model(
-        std::move(layers), std::make_unique<mlfo::layer::loss::MSELoss<float>>(4)
+        {1, 3}, std::move(layers), std::make_unique<mlfo::layer::loss::MSELoss<float>>()
     );
     model.build();
     for (const auto& [x, y] : dataset) {

@@ -112,23 +112,29 @@ int main(int argc, char** argv) {
     // he for layers followed by relu, xavier for the rest
     auto he = std::make_shared<mlfo::initializer::He<std::normal_distribution<float>>>(generator);
     auto xavier = std::make_shared<mlfo::initializer::Xavier<std::uniform_real_distribution<float>>>(generator);
-    // similar to LeNet
+    // similar to LeNet, each layer takes its input shape from the layer before it
     std::vector<std::unique_ptr<mlfo::layer::Layer<float>>> layers;
-    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<float>>(1, 28, 28, 5, 5, 6, 1, 1, 2, 2, he));
+    // (1, 28, 28) -> (6, 28, 28)
+    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<float>>(6, 5, 5, 1, 1, 2, 2, he));
     layers.push_back(std::make_unique<mlfo::layer::activation::ReLUActivation<float>>());
-    layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<float>>(28, 28, 2, 2));
-    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<float>>(6, 14, 14, 5, 5, 16, 1, 1, 0, 0, he));
+    // -> (6, 14, 14)
+    layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<float>>(2, 2));
+    // -> (16, 10, 10)
+    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<float>>(16, 5, 5, 1, 1, 0, 0, he));
     layers.push_back(std::make_unique<mlfo::layer::activation::ReLUActivation<float>>());
-    layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<float>>(10, 10, 2, 2));
+    // -> (16, 5, 5)
+    layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<float>>(2, 2));
+    // -> (1, 400)
     layers.push_back(std::make_unique<mlfo::layer::FlattenLayer<float>>());
-    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(16 * 5 * 5, 120, he));
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(120, he));
     layers.push_back(std::make_unique<mlfo::layer::activation::ReLUActivation<float>>());
-    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(120, 84, he));
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(84, he));
     layers.push_back(std::make_unique<mlfo::layer::activation::ReLUActivation<float>>());
-    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(84, 10, xavier));
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(classes, xavier));
     // the last dense layer outputs logits, softmax is applied inside the loss
-    auto loss = std::make_unique<mlfo::layer::loss::CrossEntropyLoss<float>>(classes);
-    auto model = mlfo::model::Model<float>(std::move(layers), std::move(loss));
+    auto loss = std::make_unique<mlfo::layer::loss::CrossEntropyLoss<float>>();
+    // mnist images are single channel 28 x 28
+    auto model = mlfo::model::Model<float>({1, 28, 28}, std::move(layers), std::move(loss));
     model.build();
     auto optim = mlfo::optimizer::SGD<float>(model, learning_rate);
     // the first output is the prediction, the second is the loss, see Model::build()

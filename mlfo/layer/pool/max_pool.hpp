@@ -18,9 +18,6 @@ namespace mlfo::layer::pool {
 template <mlfo::misc::Number T>
 class MaxPool : public PoolLayer<T> {
 private:
-    // input dimensions (h, w)
-    std::size_t h_;
-    std::size_t w_;
     // pooling window size (r, s)
     std::size_t r_;
     std::size_t s_;
@@ -28,26 +25,18 @@ private:
     std::size_t stride_h_;
     std::size_t stride_w_;
 public:
+    // the input dimensions (h, w) are taken from the last 2 dims of the input node when built
     MaxPool(
-        std::size_t h,
-        std::size_t w,
         std::size_t r,
         std::size_t s,
         std::optional<std::size_t> stride_h = std::nullopt,
         std::optional<std::size_t> stride_w = std::nullopt
     ) :
-    h_(h),
-    w_(w),
     r_(r),
     s_(s),
     stride_h_(stride_h.value_or(r)),
     stride_w_(stride_w.value_or(s))
     {
-        if (h == 0 || w == 0) {
-            throw std::invalid_argument(
-                "[layer::pool::max] Input dimensions must be greater than 0"
-            );
-        }
         if (r == 0 || s == 0) {
             throw std::invalid_argument(
                 "[layer::pool::max] Pooling window size must be greater than 0"
@@ -75,21 +64,20 @@ public:
                 "[layer::pool::max] Input must have at least 2 dimensions"
             );
         }
-        if (
-            input_shape[input_shape.size() - 2] != this->h_ ||
-            input_shape[input_shape.size() - 1] != this->w_
-        ) {
+        const std::size_t h = input_shape[input_shape.size() - 2];
+        const std::size_t w = input_shape[input_shape.size() - 1];
+        if (h == 0 || w == 0) {
             throw std::invalid_argument(
-                "[layer::pool::max] Last 2 input dimensions must match (h, w)"
+                "[layer::pool::max] Input dimensions must be greater than 0"
             );
         }
         this->input_shape_ = input_shape;
         this->output_shape_ = input_shape;
         this->output_shape_[this->output_shape_.size() - 2] = (
-            mlfo::tensor::pool::Max<T>::output_size(this->h_, this->r_, this->stride_h_)
+            mlfo::tensor::pool::Max<T>::output_size(h, this->r_, this->stride_h_)
         );
         this->output_shape_[this->output_shape_.size() - 1] = (
-            mlfo::tensor::pool::Max<T>::output_size(this->w_, this->s_, this->stride_w_)
+            mlfo::tensor::pool::Max<T>::output_size(w, this->s_, this->stride_w_)
         );
         auto& output_node = graph.add_node(
             mlfo::tensor::Tensor<T>(

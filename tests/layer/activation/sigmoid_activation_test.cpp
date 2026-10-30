@@ -99,7 +99,7 @@ TEST(SigmoidActivation, Backward) {
 TEST(SigmoidActivation, ComposesWithDense) {
     Graph graph;
     Node& input = graph.add_node(Tensor(1, Shape{1, 2}));
-    mlfo::layer::DenseLayer<float> dense(2, 2);
+    mlfo::layer::DenseLayer<float> dense(2);
     SigmoidActivation sigmoid_layer;
     Node& hidden = dense.build(graph, input);
     Node& output = sigmoid_layer.build(graph, hidden);

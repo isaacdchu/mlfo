@@ -26,28 +26,21 @@ namespace mlfo::layer {
 template <mlfo::misc::Number T>
 class Conv2DLayer : public mlfo::layer::Layer<T> {
 private:
-    std::size_t c_;
-    std::size_t h_;
-    std::size_t w_;
+    std::size_t k_;
     std::size_t r_;
     std::size_t s_;
-    std::size_t k_;
     std::size_t stride_h_;
     std::size_t stride_w_;
     std::size_t padding_h_;
     std::size_t padding_w_;
-    std::size_t p_;
-    std::size_t q_;
     std::shared_ptr<const mlfo::initializer::Initializer<T>> weight_initializer_;
     std::shared_ptr<const mlfo::initializer::Initializer<T>> bias_initializer_;
 public:
+    // the input shape (C, H, W) is taken from the input node when built
     Conv2DLayer(
-        std::size_t c,
-        std::size_t h,
-        std::size_t w,
+        std::size_t k,
         std::size_t r,
         std::size_t s,
-        std::size_t k,
         std::size_t stride_h = 1,
         std::size_t stride_w = 1,
         std::size_t padding_h = 0,
@@ -57,12 +50,9 @@ public:
         std::shared_ptr<const mlfo::initializer::Initializer<T>> bias_initializer =
             std::make_shared<mlfo::initializer::Zeros<T>>()
     ) :
-    c_(c),
-    h_(h),
-    w_(w),
-    r_(r),
-    s_(s),
     k_(k),
+    r_(r),
+    s_(s), 
     stride_h_(stride_h),
     stride_w_(stride_w),
     padding_h_(padding_h),
@@ -71,7 +61,7 @@ public:
     bias_initializer_(std::move(bias_initializer))
     {
         // validate parameters
-        if (c_ == 0 || h_ == 0 || w_ == 0 || r_ == 0 || s_ == 0 || k_ == 0) {
+        if (r_ == 0 || s_ == 0 || k_ == 0) {
             throw std::invalid_argument(
                 "[mlfo::layer::Conv2DLayer] All dimensions must be greater than zero"
             );
@@ -86,26 +76,40 @@ public:
                 "[mlfo::layer::Conv2DLayer] Initializers cannot be null"
             );
         }
-        if (h_ + 2 * padding_h_ < r_ || w_ + 2 * padding_w_ < s_) {
-            throw std::invalid_argument(
-                "[mlfo::layer::Conv2DLayer] Kernel size must be less than or equal to input size + 2 * padding"
-            );
-        }
-        // calculate P and Q
-        p_ = (h_ + 2 * padding_h_ - r_) / stride_h_ + 1;
-        q_ = (w_ + 2 * padding_w_ - s_) / stride_w_ + 1;
-        this->input_shape_ = {c_, h_, w_};
-        this->output_shape_ = {k_, p_, q_};
     }
 
     mlfo::graph::Node<mlfo::tensor::Tensor<T>>& build(
         mlfo::graph::Graph<mlfo::tensor::Tensor<T>>& graph,
         mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input_node
     ) override {
+        const auto& input_shape = input_node.data().shape();
+        if (input_shape.size() != 3) {
+            throw std::invalid_argument(
+                "[mlfo::layer::Conv2DLayer::build] Input must have shape (C, H, W)"
+            );
+        }
+        const std::size_t c = input_shape[0];
+        const std::size_t h = input_shape[1];
+        const std::size_t w = input_shape[2];
+        if (c == 0 || h == 0 || w == 0) {
+            throw std::invalid_argument(
+                "[mlfo::layer::Conv2DLayer::build] Input dimensions must be greater than zero"
+            );
+        }
+        if (h + 2 * padding_h_ < r_ || w + 2 * padding_w_ < s_) {
+            throw std::invalid_argument(
+                "[mlfo::layer::Conv2DLayer::build] Kernel size must be less than or equal to input size + 2 * padding"
+            );
+        }
+        // calculate P and Q
+        const std::size_t p = (h + 2 * padding_h_ - r_) / stride_h_ + 1;
+        const std::size_t q = (w + 2 * padding_w_ - s_) / stride_w_ + 1;
+        this->input_shape_ = input_shape;
+        this->output_shape_ = {k_, p, q};
         auto& weight_node = graph.add_node(
             mlfo::tensor::Tensor<T>(
                 1,
-                std::vector<std::size_t>{k_, c_, r_, s_}
+                std::vector<std::size_t>{k_, c, r_, s_}
             )
         );
         auto& bias_node = graph.add_node(
@@ -113,18 +117,18 @@ public:
         );
         // each output value sums one C x R x S window, and each input value is seen by
         // R x S kernel positions of each of the K kernels
-        weight_initializer_->initialize(weight_node.data(), c_ * r_ * s_, k_ * r_ * s_);
-        bias_initializer_->initialize(bias_node.data(), c_ * r_ * s_, k_ * r_ * s_);
+        weight_initializer_->initialize(weight_node.data(), c * r_ * s_, k_ * r_ * s_);
+        bias_initializer_->initialize(bias_node.data(), c * r_ * s_, k_ * r_ * s_);
         auto& prebias_node = graph.add_node(
             mlfo::tensor::Tensor<T>(
                 1,
-                std::vector<std::size_t>{k_, p_, q_}
+                this->output_shape_
             )
         );
         auto& output_node = graph.add_node(
             mlfo::tensor::Tensor<T>(
                 1,
-                std::vector<std::size_t>{k_, p_, q_}
+                this->output_shape_
             )
         );
         // conv2d operation: input -> prebias

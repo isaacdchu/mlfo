@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 
 #include <cstddef>
-#include <stdexcept>
 #include <vector>
 
 #include "helpers.hpp"
@@ -29,17 +28,6 @@ TEST(FlattenLayer, HasNoParameters) {
     EXPECT_TRUE(layer.parameters().empty());
 }
 
-TEST(FlattenLayer, ConstructorSetsShapes) {
-    FlattenLayer layer(Shape{3, 4, 5});
-    EXPECT_EQ(layer.input_shape(), (Shape{3, 4, 5}));
-    EXPECT_EQ(layer.output_shape(), (Shape{1, 60}));
-}
-
-TEST(FlattenLayer, ConstructorRejectsBadShapes) {
-    EXPECT_THROW(FlattenLayer(Shape{}), std::invalid_argument);
-    EXPECT_THROW(FlattenLayer(Shape{2, 0}), std::invalid_argument);
-}
-
 TEST(FlattenLayer, BuildAddsOneNode) {
     Graph graph;
     Node& input = graph.add_node(Tensor(1, Shape{2, 3}));
@@ -62,13 +50,6 @@ TEST(FlattenLayer, BuildFlattensAnyRank) {
         EXPECT_EQ(layer.input_shape(), shape);
         EXPECT_EQ(layer.output_shape(), (Shape{1, size}));
     }
-}
-
-TEST(FlattenLayer, BuildRejectsMismatchedInputShape) {
-    Graph graph;
-    Node& input = graph.add_node(Tensor(1, Shape{2, 3}));
-    FlattenLayer layer(Shape{3, 2});
-    EXPECT_THROW(layer.build(graph, input), std::invalid_argument);
 }
 
 TEST(FlattenLayer, ForwardKeepsRowMajorOrder) {
@@ -99,7 +80,7 @@ TEST(FlattenLayer, ComposesWithDense) {
     Graph graph;
     Node& input = graph.add_node(Tensor(1, Shape{2, 1, 2}));
     FlattenLayer flatten;
-    mlfo::layer::DenseLayer<float> dense(4, 1);
+    mlfo::layer::DenseLayer<float> dense(1);
     Node& flat = flatten.build(graph, input);
     Node& output = dense.build(graph, flat);
     // dense output -> prebias, bias; prebias -> input, weight

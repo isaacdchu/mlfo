@@ -15,10 +15,11 @@ using Node = mlfo::graph::Node<Tensor>;
 using Shape = std::vector<std::size_t>;
 using Layers = std::vector<std::unique_ptr<mlfo::layer::Layer<float>>>;
 
-Layers make_layers(const std::vector<std::pair<std::size_t, std::size_t>>& sizes) {
+// dense layers with the given output sizes, the input sizes are inferred when built
+Layers make_layers(const std::vector<std::size_t>& sizes) {
     Layers layers;
-    for (const auto& [in, out] : sizes) {
-        layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(in, out));
+    for (const std::size_t size : sizes) {
+        layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(size));
     }
     return layers;
 }
@@ -47,12 +48,42 @@ public:
 } // namespace
 
 TEST(Model, BuildWithoutLayersThrows) {
-    mlfo::model::Model<float> model(Layers{});
+    mlfo::model::Model<float> model({1, 3}, Layers{});
     EXPECT_THROW(model.build(), std::logic_error);
 }
 
+TEST(Model, EmptyInputShapeThrows) {
+    EXPECT_THROW(mlfo::model::Model<float>({}, make_layers({2})), std::invalid_argument);
+}
+
+TEST(Model, BuildInfersLayerInputShapes) {
+    Layers layers;
+    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<float>>(4, 3, 3));
+    layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<float>>(2, 2));
+    layers.push_back(std::make_unique<mlfo::layer::FlattenLayer<float>>());
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(5));
+    std::vector<mlfo::layer::Layer<float>*> views;
+    for (const auto& layer : layers) {
+        views.push_back(layer.get());
+    }
+    mlfo::model::Model<float> model({2, 8, 8}, std::move(layers));
+    model.build();
+    // (2, 8, 8) -> conv (4, 6, 6) -> pool (4, 3, 3) -> flatten (1, 36) -> dense (1, 5)
+    EXPECT_EQ(views[0]->input_shape(), (Shape{2, 8, 8}));
+    EXPECT_EQ(views[1]->input_shape(), (Shape{4, 6, 6}));
+    EXPECT_EQ(views[2]->input_shape(), (Shape{4, 3, 3}));
+    EXPECT_EQ(views[3]->input_shape(), (Shape{1, 36}));
+    EXPECT_EQ(model.outputs()[0].get().shape(), (Shape{1, 5}));
+}
+
+TEST(Model, BuildRejectsIncompatibleLayers) {
+    // dense needs a (1, n) input, so a (C, H, W) input must be flattened first
+    mlfo::model::Model<float> model({1, 4, 4}, make_layers({2}));
+    EXPECT_THROW(model.build(), std::invalid_argument);
+}
+
 TEST(Model, SetInputsWrongCountThrows) {
-    mlfo::model::Model<float> model(make_layers({{3, 2}}));
+    mlfo::model::Model<float> model({1, 3}, make_layers({2}));
     model.build();
     EXPECT_THROW(model.set_inputs({}), std::invalid_argument);
     const std::vector<float> x = {1, 2, 3};
@@ -60,23 +91,23 @@ TEST(Model, SetInputsWrongCountThrows) {
 }
 
 TEST(Model, SetInputsWrongSizeThrows) {
-    mlfo::model::Model<float> model(make_layers({{3, 2}}));
+    mlfo::model::Model<float> model({1, 3}, make_layers({2}));
     model.build();
     const std::vector<float> inputs = {1, 2};
     EXPECT_THROW(model.set_inputs({inputs}), std::invalid_argument);
 }
 
 TEST(Model, OutputShapeMatchesLastLayer) {
-    Layers layers = make_layers({{3, 2}, {2, 4}});
+    Layers layers = make_layers({2, 4});
     const Shape expected = layers.back()->output_shape();
-    mlfo::model::Model<float> model(std::move(layers));
+    mlfo::model::Model<float> model({1, 3}, std::move(layers));
     model.build();
     ASSERT_EQ(model.outputs().size(), 1u);
     EXPECT_EQ(model.outputs()[0].get().shape(), expected);
 }
 
 TEST(Model, ForwardWithDefaultParametersIsZero) {
-    mlfo::model::Model<float> model(make_layers({{3, 2}, {2, 4}}));
+    mlfo::model::Model<float> model({1, 3}, make_layers({2, 4}));
     model.build();
     const std::vector<float> inputs = {1, 2, 3};
     model.set_inputs({inputs});
@@ -89,7 +120,7 @@ TEST(Model, ForwardWithDefaultParametersIsZero) {
 }
 
 TEST(Model, ForwardMatchesHandComputation) {
-    TestModel model(make_layers({{2, 2}, {2, 1}}));
+    TestModel model({1, 2}, make_layers({2, 1}));
     model.build();
     model.set_parameters({1, 0, 1, 1}, {0, 1}, {2, 3}, {1});
     const std::vector<float> inputs = {1, 2};
@@ -101,7 +132,7 @@ TEST(Model, ForwardMatchesHandComputation) {
 }
 
 TEST(Model, SetInputsRecomputesForward) {
-    TestModel model(make_layers({{2, 2}, {2, 1}}));
+    TestModel model({1, 2}, make_layers({2, 1}));
     model.build();
     model.set_parameters({1, 0, 1, 1}, {0, 1}, {2, 3}, {1});
     const std::vector<float> first = {1, 2};

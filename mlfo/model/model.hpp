@@ -2,6 +2,7 @@
 #define MODEL_HPP
 
 #include <algorithm>
+#include <cstddef>
 #include <functional>
 #include <initializer_list>
 #include <memory>
@@ -23,6 +24,8 @@ namespace mlfo::model {
 template <misc::Number T>
 class Model {
 protected:
+    // unbatched shape of the model's input, each layer takes its input shape from its predecessor
+    std::vector<std::size_t> input_shape_;
     std::vector<std::unique_ptr<mlfo::layer::Layer<T>>> layers_;
     // optional loss layer
     std::unique_ptr<mlfo::layer::loss::LossLayer<T>> loss_;
@@ -42,19 +45,24 @@ protected:
     bool built_;
 public:
     Model(
+        std::vector<std::size_t> input_shape,
         std::vector<std::unique_ptr<mlfo::layer::Layer<T>>>&& layers,
         std::unique_ptr<mlfo::layer::loss::LossLayer<T>>&& loss = nullptr
     ) :
+    input_shape_(std::move(input_shape)),
     layers_(std::move(layers)),
     loss_(std::move(loss)),
     built_(false)
     {
-        // nothing
+        if (input_shape_.empty()) {
+            throw std::invalid_argument("[mlfo::model::Model] Input shape cannot be empty");
+        }
     }
 
     void build() {
-        // creates the input node (shaped by the first layer's input shape), chains each layer's output
-        // into the next layer's input, then sorts the graph
+        // creates the input node (shaped by the model's input shape), chains each layer's output
+        // into the next layer's input, then sorts the graph. each layer reads its input shape from
+        // the node it is given
         if (built_) {
             // no op since model is already build
             return;
@@ -66,7 +74,7 @@ public:
         outputs_.clear();
         output_tensors_.clear();
         inputs_.push_back(
-            &graph_.add_node(mlfo::tensor::Tensor<T>(1, layers_.front()->input_shape()))
+            &graph_.add_node(mlfo::tensor::Tensor<T>(1, input_shape_))
         );
         mlfo::graph::Node<mlfo::tensor::Tensor<T>>* current = inputs_.front();
         for (auto& layer : layers_) {

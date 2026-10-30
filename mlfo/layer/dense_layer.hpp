@@ -20,31 +20,36 @@ namespace mlfo::layer {
 template <mlfo::misc::Number T>
 class DenseLayer : public mlfo::layer::Layer<T> {
 private:
+    // set by build() from the input node
     std::size_t input_size_;
     std::size_t output_size_;
     std::shared_ptr<const mlfo::initializer::Initializer<T>> weight_initializer_;
     std::shared_ptr<const mlfo::initializer::Initializer<T>> bias_initializer_;
 public:
+    // the input size is taken from the input node when built
     DenseLayer(
-        std::size_t input_size,
         std::size_t output_size,
         std::shared_ptr<const mlfo::initializer::Initializer<T>> weight_initializer =
             std::make_shared<mlfo::initializer::Zeros<T>>(),
         std::shared_ptr<const mlfo::initializer::Initializer<T>> bias_initializer =
             std::make_shared<mlfo::initializer::Zeros<T>>()
     ) :
-    input_size_(input_size),
+    input_size_(0),
     output_size_(output_size),
     weight_initializer_(std::move(weight_initializer)),
     bias_initializer_(std::move(bias_initializer))
     {
+        if (output_size_ == 0) {
+            throw std::invalid_argument(
+                "[mlfo::layer::DenseLayer] Output size must be greater than zero"
+            );
+        }
         if (!weight_initializer_ || !bias_initializer_) {
             throw std::invalid_argument(
                 "[mlfo::layer::DenseLayer] Initializers cannot be null"
             );
         }
         // activations are row vectors (1, n) since Mul requires 2D tensors
-        this->input_shape_ = {1, input_size_};
         this->output_shape_ = {1, output_size_};
     }
 
@@ -52,6 +57,15 @@ public:
         mlfo::graph::Graph<mlfo::tensor::Tensor<T>>& graph,
         mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input_node
     ) override {
+        const auto& input_shape = input_node.data().shape();
+        // activations are row vectors (1, n) since Mul requires 2D tensors
+        if (input_shape.size() != 2 || input_shape[0] != 1 || input_shape[1] == 0) {
+            throw std::invalid_argument(
+                "[mlfo::layer::DenseLayer::build] Input must be a (1, n) row vector, use a FlattenLayer first"
+            );
+        }
+        input_size_ = input_shape[1];
+        this->input_shape_ = input_shape;
         auto& weight_node = graph.add_node(
             mlfo::tensor::Tensor<T>(1, std::vector<std::size_t>{input_size_, output_size_})
         );

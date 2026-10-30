@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <functional>
 #include <memory>
+#include <numeric>
 #include <random>
 #include <utility>
 #include <vector>
@@ -36,7 +38,7 @@ double loss_at(mlfo::model::Model<double>& model) {
 
 void check_gradients(
     Layers layers,
-    std::size_t input_size,
+    const std::vector<std::size_t>& input_shape,
     std::size_t classes,
     std::unique_ptr<mlfo::layer::loss::LossLayer<double>> loss = nullptr
 ) {
@@ -44,15 +46,18 @@ void check_gradients(
     constexpr double tolerance = 1e-6;
     std::mt19937 generator(7);
     if (loss == nullptr) {
-        loss = std::make_unique<mlfo::layer::loss::MSELoss<double>>(classes);
+        loss = std::make_unique<mlfo::layer::loss::MSELoss<double>>();
     }
-    mlfo::model::Model<double> model(std::move(layers), std::move(loss));
+    mlfo::model::Model<double> model(input_shape, std::move(layers), std::move(loss));
     model.build();
     // random parameters, so that no unit is dead and max pool has no ties
     for (const auto& param_ref : model.parameters()) {
         param_ref.get().set_values(random_values(generator, param_ref.get().size()));
     }
-    const std::vector<double> x = random_values(generator, input_size);
+    const std::vector<double> x = random_values(
+        generator,
+        std::accumulate(input_shape.begin(), input_shape.end(), std::size_t{1}, std::multiplies<>{})
+    );
     const std::vector<double> y = random_values(generator, classes);
     model.set_inputs({x});
     model.set_labels({y});
@@ -94,61 +99,61 @@ void check_gradients(
 
 TEST(GradientCheck, Dense) {
     Layers layers;
-    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(5, 4));
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(4));
     layers.push_back(std::make_unique<mlfo::layer::activation::SigmoidActivation<double>>());
-    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(4, 3));
-    check_gradients(std::move(layers), 5, 3);
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(3));
+    check_gradients(std::move(layers), {1, 5}, 3);
 }
 
 TEST(GradientCheck, DenseCrossEntropy) {
     Layers layers;
-    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(5, 4));
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(4));
     layers.push_back(std::make_unique<mlfo::layer::activation::SigmoidActivation<double>>());
-    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(4, 3));
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(3));
     check_gradients(
-        std::move(layers), 5, 3,
-        std::make_unique<mlfo::layer::loss::CrossEntropyLoss<double>>(3)
+        std::move(layers), {1, 5}, 3,
+        std::make_unique<mlfo::layer::loss::CrossEntropyLoss<double>>()
     );
 }
 
 TEST(GradientCheck, Conv2D) {
     Layers layers;
-    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<double>>(2, 5, 5, 3, 3, 3));
+    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<double>>(3, 3, 3));
     layers.push_back(std::make_unique<mlfo::layer::FlattenLayer<double>>());
-    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(3 * 3 * 3, 2));
-    check_gradients(std::move(layers), 2 * 5 * 5, 2);
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(2));
+    check_gradients(std::move(layers), {2, 5, 5}, 2);
 }
 
 TEST(GradientCheck, Conv2DPaddingAndStride) {
     Layers layers;
     // (5 + 2 * 1 - 3) / 2 + 1 = 3
-    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<double>>(2, 5, 5, 3, 3, 2, 2, 2, 1, 1));
+    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<double>>(2, 3, 3, 2, 2, 1, 1));
     layers.push_back(std::make_unique<mlfo::layer::FlattenLayer<double>>());
-    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(2 * 3 * 3, 2));
-    check_gradients(std::move(layers), 2 * 5 * 5, 2);
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(2));
+    check_gradients(std::move(layers), {2, 5, 5}, 2);
 }
 
 TEST(GradientCheck, Conv2DMaxPool) {
     Layers layers;
-    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<double>>(1, 6, 6, 3, 3, 2, 1, 1, 1, 1));
-    layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<double>>(6, 6, 2, 2));
+    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<double>>(2, 3, 3, 1, 1, 1, 1));
+    layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<double>>(2, 2));
     layers.push_back(std::make_unique<mlfo::layer::FlattenLayer<double>>());
-    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(2 * 3 * 3, 2));
-    check_gradients(std::move(layers), 6 * 6, 2);
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(2));
+    check_gradients(std::move(layers), {1, 6, 6}, 2);
 }
 
 TEST(GradientCheck, LeNetLike) {
     // the same layer sequence as main.cpp, scaled down
     Layers layers;
-    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<double>>(1, 8, 8, 3, 3, 2, 1, 1, 1, 1));
+    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<double>>(2, 3, 3, 1, 1, 1, 1));
     layers.push_back(std::make_unique<mlfo::layer::activation::SigmoidActivation<double>>());
-    layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<double>>(8, 8, 2, 2));
-    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<double>>(2, 4, 4, 3, 3, 3));
+    layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<double>>(2, 2));
+    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<double>>(3, 3, 3));
     layers.push_back(std::make_unique<mlfo::layer::activation::SigmoidActivation<double>>());
-    layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<double>>(2, 2, 2, 2));
+    layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<double>>(2, 2));
     layers.push_back(std::make_unique<mlfo::layer::FlattenLayer<double>>());
-    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(3, 4));
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(4));
     layers.push_back(std::make_unique<mlfo::layer::activation::SigmoidActivation<double>>());
-    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(4, 3));
-    check_gradients(std::move(layers), 8 * 8, 3);
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(3));
+    check_gradients(std::move(layers), {1, 8, 8}, 3);
 }

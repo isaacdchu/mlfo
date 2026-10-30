@@ -16,9 +16,9 @@ namespace mlfo::layer::loss {
 template <mlfo::misc::Number T>
 class MSELoss : public mlfo::layer::loss::LossLayer<T> {
 public:
-    MSELoss(std::size_t input_size) {
+    // the input shape is taken from the input node when built
+    MSELoss() {
         // inputs are from model and from labels
-        this->input_shape_ = {input_size};
         // output is the mean squared error
         // how to handle multiple inputs?
         // for now, just sum the errors and return a single value
@@ -29,6 +29,7 @@ public:
         mlfo::graph::Graph<mlfo::tensor::Tensor<T>>& graph,
         mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input_node
     ) override {
+        this->input_shape_ = input_node.data().shape();
         auto& output_node = graph.add_node(
             mlfo::tensor::Tensor<T>(1, std::vector<std::size_t>{1})
         );

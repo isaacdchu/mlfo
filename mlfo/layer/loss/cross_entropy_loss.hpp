@@ -17,9 +17,9 @@ namespace mlfo::layer::loss {
 template <mlfo::misc::Number T>
 class CrossEntropyLoss : public mlfo::layer::loss::LossLayer<T> {
 public:
-    CrossEntropyLoss(std::size_t input_size) {
+    // the input shape is taken from the input node when built
+    CrossEntropyLoss() {
         // inputs are logits from model and a distribution over classes from labels
-        this->input_shape_ = {input_size};
         // output is the cross entropy
         this->output_shape_ = {1};
     }
@@ -28,6 +28,7 @@ public:
         mlfo::graph::Graph<mlfo::tensor::Tensor<T>>& graph,
         mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input_node
     ) override {
+        this->input_shape_ = input_node.data().shape();
         auto& output_node = graph.add_node(
             mlfo::tensor::Tensor<T>(1, std::vector<std::size_t>{1})
         );

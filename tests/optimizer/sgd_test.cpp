@@ -18,8 +18,8 @@ using SGD = mlfo::optimizer::SGD<float>;
 // a single 1 -> 1 dense layer followed by an mse loss
 Model make_model() {
     Layers layers;
-    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(1, 1));
-    Model model(std::move(layers), std::make_unique<mlfo::layer::loss::MSELoss<float>>(1));
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(1));
+    Model model({1, 1}, std::move(layers), std::make_unique<mlfo::layer::loss::MSELoss<float>>());
     model.build();
     return model;
 }

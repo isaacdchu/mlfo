@@ -86,7 +86,7 @@ TEST(ReLUActivation, BackwardMasksNonPositiveInputs) {
 TEST(ReLUActivation, ComposesWithDense) {
     Graph graph;
     Node& input = graph.add_node(Tensor(1, Shape{1, 2}));
-    mlfo::layer::DenseLayer<float> dense(2, 2);
+    mlfo::layer::DenseLayer<float> dense(2);
     ReLUActivation relu;
     Node& hidden = dense.build(graph, input);
     Node& output = relu.build(graph, hidden);

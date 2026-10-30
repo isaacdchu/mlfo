@@ -22,39 +22,13 @@ public:
     // the input shape is taken from the input node when built
     FlattenLayer() = default;
 
-    // the input shape is only needed up front when this is the first layer of a model
-    explicit FlattenLayer(std::vector<std::size_t> input_shape) {
-        if (input_shape.empty()) {
-            throw std::invalid_argument(
-                "[mlfo::layer::FlattenLayer] Input shape cannot be empty"
-            );
-        }
-        std::size_t size = 1;
-        for (const std::size_t dim : input_shape) {
-            size *= dim;
-        }
-        if (size == 0) {
-            throw std::invalid_argument(
-                "[mlfo::layer::FlattenLayer] Input dimensions must be greater than 0"
-            );
-        }
-        this->input_shape_ = std::move(input_shape);
-        this->output_shape_ = {1, size};
-    }
-
     ~FlattenLayer() override = default;
 
     mlfo::graph::Node<mlfo::tensor::Tensor<T>>& build(
         mlfo::graph::Graph<mlfo::tensor::Tensor<T>>& graph,
         mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input_node
     ) override {
-        const auto& input_shape = input_node.data().shape();
-        if (!this->input_shape_.empty() && this->input_shape_ != input_shape) {
-            throw std::invalid_argument(
-                "[mlfo::layer::FlattenLayer::build] Input node shape does not match the given input shape"
-            );
-        }
-        this->input_shape_ = input_shape;
+        this->input_shape_ = input_node.data().shape();
         // activations are row vectors (1, n) since Mul requires 2D tensors
         this->output_shape_ = {1, input_node.data().unbatched_size()};
         auto& output_node = graph.add_node(
