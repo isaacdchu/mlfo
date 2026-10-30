@@ -156,7 +156,7 @@ public:
                 &prebias_node_tensor = prebias_node.data(),
                 &bias_node_tensor = bias_node.data()
             ](mlfo::tensor::ops::DIRECTION direction) -> void {
-                mlfo::tensor::ops::Add<T>::call(
+                mlfo::tensor::ops::ChannelAdd<T>::call(
                     direction,
                     output_node_tensor,
                     prebias_node_tensor,

@@ -16,6 +16,7 @@
 #include "layer/activation/sigmoid_activation.hpp"
 #include "layer/conv2d_layer.hpp"
 #include "layer/dense_layer.hpp"
+#include "layer/flatten_layer.hpp"
 #include "layer/layer.hpp"
 #include "layer/loss/loss_layer.hpp"
 #include "layer/loss/mse_loss.hpp"
