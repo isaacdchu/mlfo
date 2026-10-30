@@ -2,6 +2,8 @@
 #define CROSS_ENTROPY_LOSS_HPP
 
 #include <cstddef>
+#include <iostream>
+#include <memory>
 
 #include "../../graph/graph.hpp"
 #include "../../layer/layer.hpp"
@@ -55,6 +57,15 @@ public:
             }
         );
         return output_node;
+    }
+
+    void serialize(std::ostream& os) const override {
+        os << "CrossEntropyLoss\n";
+    }
+
+    // nothing follows the type line, as the layer has no configuration
+    static std::unique_ptr<CrossEntropyLoss> deserialize(std::istream& is) {
+        return std::make_unique<CrossEntropyLoss>();
     }
 };
 

@@ -47,6 +47,15 @@ public:
         );
         return output_node;
     }
+
+    void serialize(std::ostream& os) const override {
+        os << "SigmoidActivation\n";
+    }
+
+    // nothing follows the type line, as the layer has no configuration
+    static std::unique_ptr<SigmoidActivation> deserialize(std::istream& is) {
+        return std::make_unique<SigmoidActivation>();
+    }
 };
 
 } // namespace mlfo::layer::activation

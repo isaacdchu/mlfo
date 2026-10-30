@@ -3,19 +3,33 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <fstream>
 #include <functional>
 #include <initializer_list>
+#include <iostream>
 #include <memory>
 #include <span>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <filesystem>
 #include <vector>
 
 #include "../graph/graph.hpp"
+#include "../layer/activation/relu_activation.hpp"
+#include "../layer/activation/sigmoid_activation.hpp"
+#include "../layer/conv2d_layer.hpp"
+#include "../layer/dense_layer.hpp"
+#include "../layer/flatten_layer.hpp"
 #include "../layer/layer.hpp"
+#include "../layer/loss/cross_entropy_loss.hpp"
 #include "../layer/loss/loss_layer.hpp"
+#include "../layer/loss/mse_loss.hpp"
+#include "../layer/pool/max_pool.hpp"
 #include "../misc/concepts.hpp"
+#include "../misc/serialization.hpp"
 #include "../tensor/tensor.hpp"
 
 namespace mlfo::model {
@@ -48,6 +62,7 @@ protected:
     // flag to indicate whether the model has been built
     // if not, build() must be called before forward() or backward()
     bool built_;
+    std::string name_;
 
     void set_batch_size(std::size_t batch_size) {
         // resizes every non-parameter tensor (inputs, activations, labels, losses) to batch_size
@@ -72,14 +87,27 @@ public:
     batch_size_(batch_size),
     layers_(std::move(layers)),
     loss_(std::move(loss)),
-    built_(false)
+    built_(false),
+    name_("model")
     {
         if (input_shape_.empty()) {
             throw std::invalid_argument("[mlfo::model::Model] Input shape cannot be empty");
         }
         if (max_batch_size_ == 0) {
-            throw std::invalid_argument("[mlfo::model::Model] Batch size must be greater than zero");
+            throw std::invalid_argument(
+                "[mlfo::model::Model] Batch size must be greater than zero"
+            );
         }
+    }
+
+    void name(std::string_view name) {
+        name_ = std::string(name);
+        // remove newline characters from name
+        name_.erase(std::remove(name_.begin(), name_.end(), '\n'), name_.end());
+    }
+
+    const std::string& name() const {
+        return name_;
     }
 
     // the largest number of samples set_inputs() accepts at once
@@ -260,8 +288,94 @@ public:
     std::string to_string() const {
         // todo: print out computational graph and layers
         // don't print out values, only shapes of tensors and layer types
-        // use reflection for types?
         return "";
+    }
+
+    // name, then the comma separated input shape, then each layer, then the loss layer if present
+    // see Layer::serialize() for each layer's format
+    void serialize(std::ostream& os) const {
+        if (!built_) {
+            throw std::logic_error("[mlfo::model::Model::serialize] Model has not been built");
+        }
+        os << name_ << "\n";
+        mlfo::misc::write_line(os, input_shape_);
+        for (const auto& layer : layers_) {
+            layer->serialize(os);
+        }
+        if (loss_) {
+            loss_->serialize(os);
+        }
+    }
+
+    void save(const std::filesystem::path& path) const {
+        std::ofstream file(path);
+        if (!file) {
+            throw std::runtime_error("[mlfo::model::Model::save] Could not open " + path.string());
+        }
+        serialize(file);
+    }
+
+    // reads a model written by serialize() and builds it for batch_size samples at a time
+    // the batch size is not serialized, as it is chosen by whoever uses the model
+    static Model deserialize(std::istream& is, std::size_t batch_size = 1) {
+        const std::string name = mlfo::misc::read_line(is);
+        // the shape line is the only one whose length is not known up front
+        const std::string shape_line = mlfo::misc::read_line(is);
+        const std::size_t rank = std::ranges::count(shape_line, ',') + 1;
+        std::istringstream shape_stream(shape_line);
+        std::vector<std::size_t> input_shape =
+            mlfo::misc::read_values<std::size_t>(shape_stream, rank);
+        std::vector<std::unique_ptr<mlfo::layer::Layer<T>>> layers;
+        std::unique_ptr<mlfo::layer::loss::LossLayer<T>> loss;
+        std::string type;
+        while (std::getline(is, type)) {
+            if (!type.empty() && type.back() == '\r') {
+                type.pop_back();
+            }
+            if (type.empty()) {
+                // a trailing blank line, e.g. added by an editor
+                continue;
+            }
+            if (loss) {
+                throw std::runtime_error(
+                    "[mlfo::model::Model::deserialize] Loss layer must be the last layer"
+                );
+            }
+            if (type == "DenseLayer") {
+                layers.push_back(mlfo::layer::DenseLayer<T>::deserialize(is));
+            } else if (type == "Conv2DLayer") {
+                layers.push_back(mlfo::layer::Conv2DLayer<T>::deserialize(is));
+            } else if (type == "FlattenLayer") {
+                layers.push_back(mlfo::layer::FlattenLayer<T>::deserialize(is));
+            } else if (type == "MaxPool") {
+                layers.push_back(mlfo::layer::pool::MaxPool<T>::deserialize(is));
+            } else if (type == "ReLUActivation") {
+                layers.push_back(mlfo::layer::activation::ReLUActivation<T>::deserialize(is));
+            } else if (type == "SigmoidActivation") {
+                layers.push_back(mlfo::layer::activation::SigmoidActivation<T>::deserialize(is));
+            } else if (type == "MSELoss") {
+                loss = mlfo::layer::loss::MSELoss<T>::deserialize(is);
+            } else if (type == "CrossEntropyLoss") {
+                loss = mlfo::layer::loss::CrossEntropyLoss<T>::deserialize(is);
+            } else {
+                throw std::runtime_error(
+                    "[mlfo::model::Model::deserialize] Unknown layer type '" + type + "'"
+                );
+            }
+        }
+        Model model(std::move(input_shape), std::move(layers), std::move(loss), batch_size);
+        model.name(name);
+        // the layers' initializers hold the read parameters, so building restores them
+        model.build();
+        return model;
+    }
+
+    static Model load(const std::filesystem::path& path, std::size_t batch_size = 1) {
+        std::ifstream file(path);
+        if (!file) {
+            throw std::runtime_error("[mlfo::model::Model::load] Could not open " + path.string());
+        }
+        return deserialize(file, batch_size);
     }
 };
 

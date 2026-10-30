@@ -2,6 +2,7 @@
 #define LAYER_HPP
 
 #include <cstddef>
+#include <iostream>
 #include <vector>
 
 #include "../graph/graph.hpp"
@@ -40,6 +41,16 @@ public:
     ) = 0;
 
     virtual const std::vector<std::reference_wrapper<mlfo::tensor::Tensor<T>>>& parameters() const = 0;
+
+    // layer type and parameters; initializer not needed
+    // format:
+    // DenseLayer
+    // 2,3
+    // 0.1,0.2,0.3,0.4,0.5,0.6
+    // 0.1,0.2,0.3
+    // each derived class also has a static deserialize(std::istream&) that reads back everything
+    // after the type line, which Model::deserialize() reads to pick the class
+    virtual void serialize(std::ostream& os) const = 0;
 };
 
 } // namespace mlfo::layer

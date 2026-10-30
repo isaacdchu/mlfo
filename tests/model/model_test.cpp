@@ -1,8 +1,11 @@
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <filesystem>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -252,4 +255,188 @@ TEST(Model, BatchedBackwardAveragesGradients) {
             EXPECT_FLOAT_EQ(averaged[i], summed[i] / 2) << "parameter " << p << " index " << i;
         }
     }
+}
+
+TEST(Model, SerializeBeforeBuildThrows) {
+    mlfo::model::Model<float> model({1, 3}, make_layers({2}));
+    std::ostringstream os;
+    EXPECT_THROW(model.serialize(os), std::logic_error);
+}
+
+TEST(Model, SerializeWritesNameShapeLayersAndLoss) {
+    Layers layers;
+    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<float>>(1, 2, 2));
+    layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<float>>(1, 1));
+    layers.push_back(std::make_unique<mlfo::layer::activation::ReLUActivation<float>>());
+    layers.push_back(std::make_unique<mlfo::layer::FlattenLayer<float>>());
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(2));
+    layers.push_back(std::make_unique<mlfo::layer::activation::SigmoidActivation<float>>());
+    mlfo::model::Model<float> model(
+        {1, 2, 2},
+        std::move(layers),
+        std::make_unique<mlfo::layer::loss::CrossEntropyLoss<float>>()
+    );
+    model.name("net");
+    model.build();
+    // conv weight, conv bias, dense weight, dense bias
+    const auto& params = model.parameters();
+    params[0].get().set_values({0.5f, -1, 2, 0.25f});
+    params[1].get().set_values({3});
+    params[2].get().set_values({1, 2});
+    params[3].get().set_values({-0.5f, 0.1f});
+
+    std::ostringstream os;
+    model.serialize(os);
+    EXPECT_EQ(
+        os.str(),
+        "net\n"
+        "1,2,2\n"
+        "Conv2DLayer\n"
+        "1,1,2,2,1,1,0,0\n"
+        "0.5,-1,2,0.25\n"
+        "3\n"
+        "MaxPool\n"
+        "1,1,1,1\n"
+        "ReLUActivation\n"
+        "FlattenLayer\n"
+        "DenseLayer\n"
+        "1,2\n"
+        "1,2\n"
+        // written with enough digits to read back the exact float
+        "-0.5,0.100000001\n"
+        "SigmoidActivation\n"
+        "CrossEntropyLoss\n"
+    );
+}
+
+TEST(Model, SerializeRoundTripsFloats) {
+    mlfo::model::Model<float> model({1, 1}, make_layers({1}));
+    model.build();
+    const float value = 1.0f / 3.0f;
+    model.parameters()[0].get().set_values({value});
+    std::ostringstream os;
+    model.serialize(os);
+    // name, shape, layer type, sizes, then the weight
+    std::istringstream is(os.str());
+    std::string line;
+    for (int i = 0; i < 5; i++) {
+        std::getline(is, line);
+    }
+    EXPECT_EQ(std::stof(line), value);
+}
+
+namespace {
+
+// a model using every layer type, with distinct parameter values so a round trip can be checked
+std::unique_ptr<mlfo::model::Model<float>> make_serializable_model() {
+    Layers layers;
+    layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<float>>(2, 2, 2, 1, 1, 1, 1));
+    layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<float>>(2, 2, 1, 1));
+    layers.push_back(std::make_unique<mlfo::layer::activation::ReLUActivation<float>>());
+    layers.push_back(std::make_unique<mlfo::layer::FlattenLayer<float>>());
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(3));
+    layers.push_back(std::make_unique<mlfo::layer::activation::SigmoidActivation<float>>());
+    auto model = std::make_unique<mlfo::model::Model<float>>(
+        Shape{1, 3, 3},
+        std::move(layers),
+        std::make_unique<mlfo::layer::loss::MSELoss<float>>()
+    );
+    model->name("round trip");
+    model->build();
+    float value = 0.1f;
+    for (const auto& param : model->parameters()) {
+        std::vector<float> values(param.get().size());
+        for (float& v : values) {
+            v = value;
+            value = -value * 1.37f;
+        }
+        param.get().set_values(values);
+    }
+    return model;
+}
+
+std::string serialized(const mlfo::model::Model<float>& model) {
+    std::ostringstream os;
+    model.serialize(os);
+    return os.str();
+}
+
+mlfo::model::Model<float> deserialized(const std::string& text) {
+    std::istringstream is(text);
+    return mlfo::model::Model<float>::deserialize(is);
+}
+
+} // namespace
+
+TEST(Model, DeserializeRoundTrips) {
+    const auto original = make_serializable_model();
+    const std::string text = serialized(*original);
+    auto loaded = deserialized(text);
+    EXPECT_EQ(loaded.name(), "round trip");
+    EXPECT_EQ(serialized(loaded), text);
+
+    // the loaded model computes the same outputs, including the loss
+    const std::vector<float> x = {1, -2, 3, 0.5f, 0, -1, 2, 4, -3};
+    const std::vector<float> y = {0, 1, 0.5f};
+    original->set_inputs({x});
+    original->set_labels({y});
+    original->forward();
+    loaded.set_inputs({x});
+    loaded.set_labels({y});
+    loaded.forward();
+    ASSERT_EQ(loaded.outputs().size(), original->outputs().size());
+    for (std::size_t i = 0; i < loaded.outputs().size(); i++) {
+        EXPECT_EQ(loaded.outputs()[i].get().values(), original->outputs()[i].get().values());
+    }
+}
+
+TEST(Model, DeserializeUsesGivenBatchSize) {
+    const auto original = make_serializable_model();
+    std::istringstream is(serialized(*original));
+    const auto loaded = mlfo::model::Model<float>::deserialize(is, 4);
+    EXPECT_EQ(loaded.max_batch_size(), 4u);
+}
+
+TEST(Model, DeserializeAcceptsWindowsLineEndings) {
+    const auto original = make_serializable_model();
+    std::string text;
+    for (const char c : serialized(*original)) {
+        if (c == '\n') {
+            text += '\r';
+        }
+        text += c;
+    }
+    EXPECT_EQ(serialized(deserialized(text)), serialized(*original));
+}
+
+TEST(Model, DeserializeRejectsMalformedInput) {
+    // unknown layer type
+    EXPECT_THROW(deserialized("m\n1,2\nFooLayer\n"), std::runtime_error);
+    // truncated parameters
+    EXPECT_THROW(deserialized("m\n1,2\nDenseLayer\n2,1\n0.5,0.5\n"), std::runtime_error);
+    // wrong number of weights for the sizes
+    EXPECT_THROW(deserialized("m\n1,2\nDenseLayer\n2,1\n0.5\n0\n"), std::runtime_error);
+    // non numeric value
+    EXPECT_THROW(deserialized("m\n1,2\nDenseLayer\n2,1\n0.5,abc\n0\n"), std::runtime_error);
+    // layer after the loss
+    EXPECT_THROW(deserialized("m\n1,1\nMSELoss\nFlattenLayer\n"), std::runtime_error);
+    // missing input shape
+    EXPECT_THROW(deserialized("m\n"), std::runtime_error);
+    // saved sizes do not match the input shape, caught when the parameters are restored
+    EXPECT_THROW(deserialized("m\n1,3\nDenseLayer\n2,1\n0.5,0.5\n0\n"), std::invalid_argument);
+}
+
+TEST(Model, SaveAndLoadFile) {
+    const auto original = make_serializable_model();
+    const auto path = std::filesystem::temp_directory_path() / "mlfo_model_test_save_load.txt";
+    original->save(path);
+    const auto loaded = mlfo::model::Model<float>::load(path);
+    std::filesystem::remove(path);
+    EXPECT_EQ(serialized(loaded), serialized(*original));
+}
+
+TEST(Model, LoadMissingFileThrows) {
+    const auto path = std::filesystem::temp_directory_path() / "mlfo_model_test_missing.txt";
+    std::filesystem::remove(path);
+    EXPECT_THROW(mlfo::model::Model<float>::load(path), std::runtime_error);
 }

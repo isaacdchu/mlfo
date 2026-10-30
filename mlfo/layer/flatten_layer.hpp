@@ -2,6 +2,8 @@
 #define FLATTEN_LAYER_HPP
 
 #include <cstddef>
+#include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -56,6 +58,15 @@ public:
     // flatten layers have no parameters, so this is always empty
     const std::vector<std::reference_wrapper<mlfo::tensor::Tensor<T>>>& parameters() const override {
         return this->parameters_;
+    }
+
+    void serialize(std::ostream& os) const override {
+        os << "FlattenLayer\n";
+    }
+
+    // nothing follows the type line, as the layer has no configuration
+    static std::unique_ptr<FlattenLayer> deserialize(std::istream& is) {
+        return std::make_unique<FlattenLayer>();
     }
 };
 

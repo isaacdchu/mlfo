@@ -10,7 +10,9 @@
 #include "../graph/graph.hpp"
 #include "../initializer/constant.hpp"
 #include "../initializer/initializer.hpp"
+#include "../initializer/values.hpp"
 #include "../misc/concepts.hpp"
+#include "../misc/serialization.hpp"
 #include "../tensor/ops.hpp"
 #include "../tensor/tensor.hpp"
 #include "layer.hpp"
@@ -177,6 +179,41 @@ public:
 
     const std::vector<std::reference_wrapper<mlfo::tensor::Tensor<T>>>& parameters() const override {
         return this->parameters_;
+    }
+
+    // Conv2DLayer, then c,k,r,s,stride_h,stride_w,padding_h,padding_w, then the weights and biases
+    void serialize(std::ostream& os) const override {
+        if (this->parameters_.empty()) {
+            throw std::logic_error(
+                "[mlfo::layer::Conv2DLayer::serialize] Layer has not been built"
+            );
+        }
+        os << "Conv2DLayer\n";
+        mlfo::misc::write_line(
+            os,
+            std::vector<std::size_t>{
+                this->input_shape_[0], k_, r_, s_, stride_h_, stride_w_, padding_h_, padding_w_
+            }
+        );
+        mlfo::misc::write_line(os, this->parameters_[0].get().values());
+        mlfo::misc::write_line(os, this->parameters_[1].get().values());
+    }
+
+    // reads everything serialize() writes after the type line
+    // the layer is initialized with the read parameters when built
+    static std::unique_ptr<Conv2DLayer> deserialize(std::istream& is) {
+        const auto config = mlfo::misc::read_values<std::size_t>(is, 8);
+        const std::size_t c = config[0];
+        const std::size_t k = config[1];
+        const std::size_t r = config[2];
+        const std::size_t s = config[3];
+        auto weights = mlfo::misc::read_values<T>(is, k * c * r * s);
+        auto biases = mlfo::misc::read_values<T>(is, k);
+        return std::make_unique<Conv2DLayer>(
+            k, r, s, config[4], config[5], config[6], config[7],
+            std::make_shared<mlfo::initializer::Values<T>>(std::move(weights)),
+            std::make_shared<mlfo::initializer::Values<T>>(std::move(biases))
+        );
     }
 };
 

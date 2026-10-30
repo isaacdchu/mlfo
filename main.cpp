@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -112,7 +113,75 @@ std::size_t count_correct(
 
 } // namespace
 
+int test(int argc, char** argv);
+int train(int argc, char** argv);
+
 int main(int argc, char** argv) {
+    if (argc != 2 && argc != 3) {
+        std::println(
+            "Usage: {} <data_dir> [train|test]\n"
+            "  data_dir: the directory containing the mnist idx files\n"
+            "  train: trains a new model and saves it to models/mnist_cnn.mlfo\n"
+            "  test: loads models/mnist_cnn.mlfo and evaluates it on the test set",
+            argv[0]
+        );
+        return 1;
+    }
+    const std::string mode = argc == 3 ? argv[2] : "train";
+    if (mode == "train") {
+        return train(argc, argv);
+    } else if (mode == "test") {
+        return test(argc, argv);
+    } else {
+        std::println(std::cerr, "Unknown mode '{}', must be 'train' or 'test'", mode);
+        return 1;
+    }
+}
+
+int test(int argc, char** argv) {
+    const std::filesystem::path data_dir = argc > 1 ? argv[1] : "data";
+    Mnist test;
+    try {
+        test = load_mnist(data_dir / "t10k-images.idx3-ubyte", data_dir / "t10k-labels.idx1-ubyte");
+    } catch (const std::exception& e) {
+        std::println(std::cerr, "{}", e.what());
+        return 1;
+    }
+    std::println("loaded {} test images", test.count);
+
+    constexpr std::size_t classes = 10;
+    constexpr std::size_t batch_size = 32;
+    mlfo::model::Model<float> model = [] {
+        try {
+            return mlfo::model::Model<float>::load("models/mnist_cnn.mlfo", batch_size);
+        } catch (const std::exception& e) {
+            std::println(std::cerr, "{}", e.what());
+            std::exit(1);
+        }
+    }();
+    const auto& prediction = model.outputs()[0].get();
+
+    // the model only takes batch_size samples at a time
+    std::vector<float> x(batch_size * test.image_size);
+    std::vector<float> y(batch_size * classes);
+    std::vector<std::size_t> order(test.count);
+    std::iota(order.begin(), order.end(), 0);
+    std::size_t correct = 0;
+    for (std::size_t first = 0; first < test.count; first += batch_size) {
+        const auto indices = std::span<const std::size_t>(order).subspan(
+            first, std::min(batch_size, test.count - first)
+        );
+        fill_batch(test, indices, classes, x, y);
+        model.set_inputs({x});
+        model.set_labels({y});
+        model.forward();
+        correct += count_correct(test, indices, prediction.values());
+    }
+    std::println("test accuracy {:.2f}%", 100.0 * correct / test.count);
+    return 0;
+}
+
+int train(int argc, char** argv) {
     const std::filesystem::path data_dir = argc > 1 ? argv[1] : "data";
     constexpr std::size_t classes = 10;
     constexpr std::size_t epochs = 5;
@@ -233,5 +302,8 @@ int main(int argc, char** argv) {
             epoch, elapsed.count(), test_loss / test.count, 100.0 * test_correct / test.count
         );
     }
+
+    model.name("mnist_cnn");
+    model.save("models/mnist_cnn.mlfo");
     return 0;
 }

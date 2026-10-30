@@ -2,6 +2,8 @@
 #define MAX_POOL_HPP
 
 #include <cstddef>
+#include <iostream>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <vector>
@@ -9,6 +11,7 @@
 #include "../../graph/graph.hpp"
 #include "../../graph/node.hpp"
 #include "../../misc/concepts.hpp"
+#include "../../misc/serialization.hpp"
 #include "../../tensor/pool.hpp"
 #include "../../tensor/tensor.hpp"
 #include "pool_layer.hpp"
@@ -104,6 +107,18 @@ public:
             }
         );
         return output_node;
+    }
+
+    // MaxPool, then r,s,stride_h,stride_w
+    void serialize(std::ostream& os) const override {
+        os << "MaxPool\n";
+        mlfo::misc::write_line(os, std::vector<std::size_t>{r_, s_, stride_h_, stride_w_});
+    }
+
+    // reads everything serialize() writes after the type line
+    static std::unique_ptr<MaxPool> deserialize(std::istream& is) {
+        const auto config = mlfo::misc::read_values<std::size_t>(is, 4);
+        return std::make_unique<MaxPool>(config[0], config[1], config[2], config[3]);
     }
 };
 

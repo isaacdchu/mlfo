@@ -50,6 +50,15 @@ public:
         );
         return output_node;
     }
+
+    void serialize(std::ostream& os) const override {
+        os << "ReLUActivation\n";
+    }
+
+    // nothing follows the type line, as the layer has no configuration
+    static std::unique_ptr<ReLUActivation> deserialize(std::istream& is) {
+        return std::make_unique<ReLUActivation>();
+    }
 };
 
 } // namespace mlfo::layer::activation

@@ -10,7 +10,9 @@
 #include "../graph/graph.hpp"
 #include "../initializer/constant.hpp"
 #include "../initializer/initializer.hpp"
+#include "../initializer/values.hpp"
 #include "../misc/concepts.hpp"
+#include "../misc/serialization.hpp"
 #include "../tensor/ops.hpp"
 #include "../tensor/tensor.hpp"
 #include "layer.hpp"
@@ -130,6 +132,28 @@ public:
             );
         }
         return this->parameters_;
+    }
+
+    // DenseLayer, then input_size,output_size, then the weights and biases
+    void serialize(std::ostream& os) const override {
+        const auto& params = parameters();
+        os << "DenseLayer\n";
+        mlfo::misc::write_line(os, std::vector<std::size_t>{input_size_, output_size_});
+        mlfo::misc::write_line(os, params[0].get().values());
+        mlfo::misc::write_line(os, params[1].get().values());
+    }
+
+    // reads everything serialize() writes after the type line
+    // the layer is initialized with the read parameters when built
+    static std::unique_ptr<DenseLayer> deserialize(std::istream& is) {
+        const auto sizes = mlfo::misc::read_values<std::size_t>(is, 2);
+        auto weights = mlfo::misc::read_values<T>(is, sizes[0] * sizes[1]);
+        auto biases = mlfo::misc::read_values<T>(is, sizes[1]);
+        return std::make_unique<DenseLayer>(
+            sizes[1],
+            std::make_shared<mlfo::initializer::Values<T>>(std::move(weights)),
+            std::make_shared<mlfo::initializer::Values<T>>(std::move(biases))
+        );
     }
 };
 
