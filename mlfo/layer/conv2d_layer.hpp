@@ -119,15 +119,16 @@ public:
         // R x S kernel positions of each of the K kernels
         weight_initializer_->initialize(weight_node.data(), c * r_ * s_, k_ * r_ * s_);
         bias_initializer_->initialize(bias_node.data(), c * r_ * s_, k_ * r_ * s_);
+        // activations have one batch per sample, the parameters are broadcast over them
         auto& prebias_node = graph.add_node(
             mlfo::tensor::Tensor<T>(
-                1,
+                input_node.data().batch_size(),
                 this->output_shape_
             )
         );
         auto& output_node = graph.add_node(
             mlfo::tensor::Tensor<T>(
-                1,
+                input_node.data().batch_size(),
                 this->output_shape_
             )
         );

@@ -8,6 +8,7 @@
 #include <exception>
 #include <iterator>
 #include <mutex>
+#include <stdexcept>
 #include <stop_token>
 #include <thread>
 #include <vector>
@@ -17,17 +18,21 @@
 
 namespace mlfo::dataset {
 
-// iterates over a dataset while a worker thread loads and transforms the next chunk, e.g.
-//     auto loader = DataLoader<float>(dataset);
-//     for (const auto& [x, y] : loader) {
+// iterates over a dataset in batches while a worker thread loads and transforms the next batch, e.g.
+//     auto loader = DataLoader<float>(dataset, batch_size);
+//     auto model = Model<float>(input_shape, std::move(layers), std::move(loss), batch_size);
+//     for (const auto& [x, y, count] : loader) {
 //         model.set_inputs({x});
 //         model.set_labels({y});
 //         ...
 //     }
-// the chunks are double buffered: the worker fills one buffer of dataset.chunk_size() samples
-// while the other is being read, so the threads only synchronize once per chunk
-// the samples in each buffer are reused between chunks and epochs, so nothing is allocated once
-// both buffers have been filled
+// every batch holds batch_size samples except the last, which holds the remainder when the
+// dataset size is not a multiple of batch_size. the model accepts any batch up to the size it was
+// built with, so the loader and the model should be given the same batch size
+// the batches are double buffered: the worker fills one buffer while the other is being read, so
+// the threads only synchronize once per batch
+// the buffers are reused between batches and epochs, so nothing is allocated once both buffers
+// have been filled with a full batch
 // the dataset must outlive the loader, and must not be used elsewhere while the loader iterates
 // since the worker reads from it. the transform runs on the worker thread
 template <mlfo::misc::Number T>
@@ -35,13 +40,21 @@ class DataLoader {
 public:
     using Sample = typename Dataset<T>::Sample;
 
+    // count samples, flattened and concatenated in order, which is the layout Model::set_inputs()
+    // and Model::set_labels() take
+    struct Batch {
+        std::vector<T> inputs;
+        std::vector<T> labels;
+        std::size_t count;
+    };
+
     class Iterator {
     private:
         DataLoader* loader_;
         std::size_t index_;
     public:
         using iterator_category = std::input_iterator_tag;
-        using value_type = Sample;
+        using value_type = Batch;
         using difference_type = std::ptrdiff_t;
 
         Iterator() :
@@ -59,8 +72,8 @@ public:
         }
 
         // valid until the iterator is incremented
-        const Sample& operator*() const {
-            return loader_->sample(index_);
+        const Batch& operator*() const {
+            return loader_->batch(index_);
         }
 
         Iterator& operator++() {
@@ -79,14 +92,16 @@ public:
     };
 private:
     struct Buffer {
-        std::vector<Sample> samples;
-        // set by the worker once samples holds a chunk, cleared by the reader once it is done
+        Batch batch;
+        // set by the worker once batch holds a batch, cleared by the reader once it is done
         bool full;
     };
 
     Dataset<T>& dataset_;
-    std::size_t chunk_size_;
+    std::size_t batch_size_;
     std::array<Buffer, 2> buffers_;
+    // only used by the worker, each sample is transformed into it then appended to a batch
+    Sample sample_;
     // guards buffers_[i].full and error_
     std::mutex mutex_;
     std::condition_variable_any condition_;
@@ -95,19 +110,46 @@ private:
     // declared last so it is stopped and joined before the members it uses are destroyed
     std::jthread worker_;
 
-    Buffer& buffer(std::size_t chunk) {
-        // chunk i is loaded into buffer i % 2
-        return buffers_[chunk % 2];
+    Buffer& buffer(std::size_t index) {
+        // batch i is loaded into buffer i % 2
+        return buffers_[index % 2];
+    }
+
+    void fill(Batch& batch, std::size_t start, std::size_t count, std::stop_token stop) {
+        // transforms count samples from start and appends them to batch. returns early if stopped
+        // clear() keeps the vectors' capacity, so this doesn't allocate once they are large enough
+        batch.inputs.clear();
+        batch.labels.clear();
+        batch.count = count;
+        std::size_t input_size = 0;
+        std::size_t label_size = 0;
+        for (std::size_t i = 0; i < count; i++) {
+            if (stop.stop_requested()) {
+                return;
+            }
+            dataset_.get(start + i, sample_);
+            if (i == 0) {
+                input_size = sample_.first.size();
+                label_size = sample_.second.size();
+            } else if (sample_.first.size() != input_size || sample_.second.size() != label_size) {
+                // the batch is flattened, so a sample's size is what separates it from the next
+                throw std::runtime_error(
+                    "[mlfo::dataset::DataLoader] Samples in a batch must all have the same size"
+                );
+            }
+            batch.inputs.insert(batch.inputs.end(), sample_.first.begin(), sample_.first.end());
+            batch.labels.insert(batch.labels.end(), sample_.second.begin(), sample_.second.end());
+        }
     }
 
     void load(std::stop_token stop) {
-        // runs on the worker thread, loading every chunk in order into alternating buffers
+        // runs on the worker thread, loading every batch in order into alternating buffers
         try {
-            const std::size_t chunks = (dataset_.size() + chunk_size_ - 1) / chunk_size_;
-            for (std::size_t chunk = 0; chunk < chunks; chunk++) {
-                Buffer& current = buffer(chunk);
+            const std::size_t batches = size();
+            for (std::size_t index = 0; index < batches; index++) {
+                Buffer& current = buffer(index);
                 {
-                    // wait until the reader is done with the chunk that was in this buffer
+                    // wait until the reader is done with the batch that was in this buffer
                     std::unique_lock lock(mutex_);
                     if (
                         !condition_.wait(
@@ -122,13 +164,12 @@ private:
                     }
                 }
                 // the reader doesn't touch a buffer that isn't full, so it is filled without the lock
-                const std::size_t start = chunk * chunk_size_;
-                const std::size_t count = std::min(chunk_size_, dataset_.size() - start);
-                for (std::size_t i = 0; i < count; i++) {
-                    if (stop.stop_requested()) {
-                        return;
-                    }
-                    dataset_.get(start + i, current.samples[i]);
+                // the last batch holds whatever is left when the dataset doesn't divide evenly
+                const std::size_t start = index * batch_size_;
+                const std::size_t count = std::min(batch_size_, dataset_.size() - start);
+                fill(current.batch, start, count, stop);
+                if (stop.stop_requested()) {
+                    return;
                 }
                 {
                     std::lock_guard lock(mutex_);
@@ -145,10 +186,10 @@ private:
         }
     }
 
-    void acquire(std::size_t chunk) {
-        // waits until the worker has loaded chunk, rethrowing the worker's exception if it failed
+    void acquire(std::size_t index) {
+        // waits until the worker has loaded batch index, rethrowing the worker's exception if it failed
         std::unique_lock lock(mutex_);
-        Buffer& current = buffer(chunk);
+        Buffer& current = buffer(index);
         condition_.wait(
             lock,
             [this, &current]() -> bool {
@@ -160,11 +201,11 @@ private:
         }
     }
 
-    void release(std::size_t chunk) {
-        // hands the buffer holding chunk back to the worker
+    void release(std::size_t index) {
+        // hands the buffer holding batch index back to the worker
         {
             std::lock_guard lock(mutex_);
-            buffer(chunk).full = false;
+            buffer(index).full = false;
         }
         condition_.notify_all();
     }
@@ -177,7 +218,7 @@ private:
     }
 
     void start() {
-        // stops the previous epoch, if any, and starts loading from the first chunk
+        // stops the previous epoch, if any, and starts loading from the first batch
         stop();
         for (Buffer& current : buffers_) {
             current.full = false;
@@ -192,30 +233,31 @@ private:
         acquire(0);
     }
 
-    const Sample& sample(std::size_t index) {
-        return buffer(index / chunk_size_).samples[index % chunk_size_];
+    const Batch& batch(std::size_t index) {
+        return buffer(index).batch;
     }
 
     void advance(std::size_t index) {
-        // called after the iterator moves to index. when it crosses into a new chunk, the previous
-        // chunk's buffer is handed back to the worker and the new chunk is waited for
-        if (index % chunk_size_ != 0) {
-            return;
-        }
-        const std::size_t chunk = index / chunk_size_;
-        release(chunk - 1);
-        if (index < dataset_.size()) {
-            acquire(chunk);
+        // called after the iterator moves to batch index. the previous batch's buffer is handed
+        // back to the worker and the new batch is waited for
+        release(index - 1);
+        if (index < size()) {
+            acquire(index);
         }
     }
 public:
-    explicit DataLoader(Dataset<T>& dataset) :
+    // the samples are read in order, so the dataset reads each of its chunks from the file once
+    DataLoader(Dataset<T>& dataset, std::size_t batch_size) :
     dataset_(dataset),
-    chunk_size_(dataset.chunk_size())
+    batch_size_(batch_size)
     {
-        // the buffers match the dataset's chunks, so the dataset reads each chunk from the file once
+        if (batch_size_ == 0) {
+            throw std::invalid_argument(
+                "[mlfo::dataset::DataLoader] Batch size must be greater than zero"
+            );
+        }
         for (Buffer& current : buffers_) {
-            current.samples.resize(chunk_size_);
+            current.batch.count = 0;
             current.full = false;
         }
     }
@@ -228,8 +270,13 @@ public:
         stop();
     }
 
+    // the number of batches in an epoch, including a smaller last batch
     std::size_t size() const {
-        return dataset_.size();
+        return (dataset_.size() + batch_size_ - 1) / batch_size_;
+    }
+
+    std::size_t batch_size() const {
+        return batch_size_;
     }
 
     // starts a new epoch, restarting the worker if the previous epoch was not finished
@@ -239,7 +286,7 @@ public:
     }
 
     Iterator end() {
-        return Iterator(*this, dataset_.size());
+        return Iterator(*this, size());
     }
 };
 

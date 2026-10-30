@@ -29,8 +29,9 @@ public:
         mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input_node
     ) override {
         this->input_shape_ = input_node.data().shape();
+        // one loss value per batch, the model averages them in backward()
         auto& output_node = graph.add_node(
-            mlfo::tensor::Tensor<T>(1, std::vector<std::size_t>{1})
+            mlfo::tensor::Tensor<T>(input_node.data().batch_size(), std::vector<std::size_t>{1})
         );
         auto& label_node = graph.add_node(
             // labels are compared element-wise, so they take the input node's shape

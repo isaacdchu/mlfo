@@ -145,3 +145,111 @@ TEST(Model, SetInputsRecomputesForward) {
     model.forward();
     EXPECT_FLOAT_EQ(model.outputs()[0].get().values()[0], 9.0f);
 }
+
+TEST(Model, ZeroBatchSizeThrows) {
+    EXPECT_THROW(
+        mlfo::model::Model<float>({1, 2}, make_layers({1}), nullptr, 0),
+        std::invalid_argument
+    );
+}
+
+TEST(Model, BatchedForwardMatchesSingleSamples) {
+    TestModel model({1, 2}, make_layers({2, 1}), nullptr, 2);
+    model.build();
+    model.set_parameters({1, 0, 1, 1}, {0, 1}, {2, 3}, {1});
+    // the two samples from ForwardMatchesHandComputation and SetInputsRecomputesForward
+    const std::vector<float> inputs = {1, 2, 0, 1};
+    model.set_inputs({inputs});
+    model.forward();
+    EXPECT_EQ(model.batch_size(), 2u);
+    EXPECT_EQ(model.outputs()[0].get().values(), (std::vector<float>{16, 9}));
+}
+
+TEST(Model, PartialBatchShrinksAndGrows) {
+    TestModel model({1, 2}, make_layers({2, 1}), nullptr, 3);
+    model.build();
+    model.set_parameters({1, 0, 1, 1}, {0, 1}, {2, 3}, {1});
+    const auto& output = model.outputs()[0].get();
+    const std::vector<float> full = {1, 2, 0, 1, 1, 2};
+    model.set_inputs({full});
+    model.forward();
+    EXPECT_EQ(output.values(), (std::vector<float>{16, 9, 16}));
+    // e.g. the last batch of an epoch
+    const std::vector<float> partial = {0, 1};
+    model.set_inputs({partial});
+    model.forward();
+    EXPECT_EQ(model.batch_size(), 1u);
+    EXPECT_EQ(output.values(), (std::vector<float>{9}));
+    model.set_inputs({full});
+    model.forward();
+    EXPECT_EQ(output.values(), (std::vector<float>{16, 9, 16}));
+}
+
+TEST(Model, SetInputsRejectsBadBatches) {
+    mlfo::model::Model<float> model({1, 2}, make_layers({1}), nullptr, 2);
+    model.build();
+    // more samples than the model was built for
+    const std::vector<float> too_many = {1, 2, 3, 4, 5, 6};
+    EXPECT_THROW(model.set_inputs({too_many}), std::invalid_argument);
+    // not a whole number of samples
+    const std::vector<float> partial_sample = {1, 2, 3};
+    EXPECT_THROW(model.set_inputs({partial_sample}), std::invalid_argument);
+    const std::vector<float> empty;
+    EXPECT_THROW(model.set_inputs({empty}), std::invalid_argument);
+}
+
+TEST(Model, SetLabelsMustMatchBatch) {
+    mlfo::model::Model<float> model(
+        {1, 2}, make_layers({1}), std::make_unique<mlfo::layer::loss::MSELoss<float>>(), 2
+    );
+    model.build();
+    const std::vector<float> inputs = {1, 2};
+    model.set_inputs({inputs});
+    const std::vector<float> labels = {1, 2};
+    EXPECT_THROW(model.set_labels({labels}), std::invalid_argument);
+}
+
+TEST(Model, BatchedBackwardAveragesGradients) {
+    // the gradient of a batch is the mean of its samples' gradients
+    const std::vector<std::vector<float>> xs = {{1, 2}, {0, 1}};
+    const std::vector<std::vector<float>> ys = {{3}, {-2}};
+    auto make_model = [](std::size_t batch_size) {
+        auto model = std::make_unique<TestModel>(
+            Shape{1, 2}, make_layers({2, 1}),
+            std::make_unique<mlfo::layer::loss::MSELoss<float>>(), batch_size
+        );
+        model->build();
+        model->set_parameters({1, 0, 1, 1}, {0, 1}, {2, 3}, {1});
+        for (const auto& param_ref : model->parameters()) {
+            param_ref.get().zero_grad();
+        }
+        return model;
+    };
+
+    // one sample at a time, accumulating the parameter gradients
+    auto single = make_model(1);
+    for (std::size_t i = 0; i < xs.size(); i++) {
+        single->set_inputs({xs[i]});
+        single->set_labels({ys[i]});
+        single->forward();
+        single->backward();
+    }
+
+    auto batched = make_model(2);
+    const std::vector<float> x = {1, 2, 0, 1};
+    const std::vector<float> y = {3, -2};
+    batched->set_inputs({x});
+    batched->set_labels({y});
+    batched->forward();
+    batched->backward();
+
+    ASSERT_EQ(single->parameters().size(), batched->parameters().size());
+    for (std::size_t p = 0; p < single->parameters().size(); p++) {
+        const auto& summed = single->parameters()[p].get().gradients();
+        const auto& averaged = batched->parameters()[p].get().gradients();
+        ASSERT_EQ(summed.size(), averaged.size());
+        for (std::size_t i = 0; i < summed.size(); i++) {
+            EXPECT_FLOAT_EQ(averaged[i], summed[i] / 2) << "parameter " << p << " index " << i;
+        }
+    }
+}

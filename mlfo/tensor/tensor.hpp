@@ -192,6 +192,21 @@ public:
         return batch_size_;
     }
 
+    // changes the number of batches, keeping the unbatched shape. new batches are zero
+    // shrinking keeps the buffers' capacity, so growing back to a batch size the tensor has held
+    // before never allocates, e.g. for a smaller last batch of an epoch
+    void set_batch_size(std::size_t batch_size) {
+        if (batch_size == 0) {
+            throw std::invalid_argument(
+                "[mlfo::tensor::Tensor::set_batch_size] Batch size must be greater than zero"
+            );
+        }
+        batch_size_ = batch_size;
+        size_ = batch_size_ * unbatched_size_;
+        values_.resize(size_, T{0});
+        gradients_.resize(size_, T{0});
+    }
+
     const std::vector<std::size_t>& strides() const {
         return strides_;
     }

@@ -76,11 +76,13 @@ public:
         // each output unit sums input_size_ inputs, and each input feeds output_size_ units
         weight_initializer_->initialize(weight_node.data(), input_size_, output_size_);
         bias_initializer_->initialize(bias_node.data(), input_size_, output_size_);
+        // activations have one batch per sample, the parameters are broadcast over them
+        const std::size_t batch_size = input_node.data().batch_size();
         auto& prebias_node = graph.add_node(
-            mlfo::tensor::Tensor<T>(1, std::vector<std::size_t>{1, output_size_})
+            mlfo::tensor::Tensor<T>(batch_size, std::vector<std::size_t>{1, output_size_})
         );
         auto& output_node = graph.add_node(
-            mlfo::tensor::Tensor<T>(1, std::vector<std::size_t>{1, output_size_})
+            mlfo::tensor::Tensor<T>(batch_size, std::vector<std::size_t>{1, output_size_})
         );
         prebias_node.add_predecessors(
             {input_node, weight_node},

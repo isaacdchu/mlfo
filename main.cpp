@@ -7,6 +7,7 @@
 #include <iostream>
 #include <numeric>
 #include <print>
+#include <span>
 #include <stdexcept>
 #include <vector>
 
@@ -72,18 +73,41 @@ Mnist load_mnist(const std::filesystem::path& images_path, const std::filesystem
     return mnist;
 }
 
-void fill_sample(const Mnist& mnist, std::size_t index, std::vector<float>& x, std::vector<float>& y) {
-    // scales pixels to [0, 1] and one-hot encodes the label
-    const std::uint8_t* pixels = mnist.images.data() + index * mnist.image_size;
-    for (std::size_t i = 0; i < mnist.image_size; i++) {
-        x[i] = static_cast<float>(pixels[i]) / 255.0f;
-    }
+void fill_batch(
+    const Mnist& mnist,
+    std::span<const std::size_t> indices,
+    std::size_t classes,
+    std::vector<float>& x,
+    std::vector<float>& y
+) {
+    // scales pixels to [0, 1] and one-hot encodes the labels, one sample after another
+    // shrinking keeps the capacity, so a smaller last batch doesn't allocate
+    x.resize(indices.size() * mnist.image_size);
+    y.resize(indices.size() * classes);
     std::fill(y.begin(), y.end(), 0.0f);
-    y[mnist.labels[index]] = 1.0f;
+    for (std::size_t b = 0; b < indices.size(); b++) {
+        const std::uint8_t* pixels = mnist.images.data() + indices[b] * mnist.image_size;
+        for (std::size_t i = 0; i < mnist.image_size; i++) {
+            x[b * mnist.image_size + i] = static_cast<float>(pixels[i]) / 255.0f;
+        }
+        y[b * classes + mnist.labels[indices[b]]] = 1.0f;
+    }
 }
 
-std::size_t argmax(const std::vector<float>& values) {
-    return std::distance(values.begin(), std::max_element(values.begin(), values.end()));
+std::size_t count_correct(
+    const Mnist& mnist,
+    std::span<const std::size_t> indices,
+    const std::vector<float>& logits
+) {
+    // the number of samples in the batch whose largest logit is their label
+    const std::size_t classes = logits.size() / indices.size();
+    std::size_t correct = 0;
+    for (std::size_t b = 0; b < indices.size(); b++) {
+        const auto begin = logits.begin() + b * classes;
+        const auto best = std::distance(begin, std::max_element(begin, begin + classes));
+        correct += static_cast<std::size_t>(best) == mnist.labels[indices[b]];
+    }
+    return correct;
 }
 
 } // namespace
@@ -92,9 +116,11 @@ int main(int argc, char** argv) {
     const std::filesystem::path data_dir = argc > 1 ? argv[1] : "data";
     constexpr std::size_t classes = 10;
     constexpr std::size_t epochs = 5;
-    constexpr float learning_rate = 0.01f;
-    // print the running loss every this many samples
-    constexpr std::size_t log_every = 10000;
+    // the loss is averaged over the batch, so a larger batch can take a larger step
+    constexpr std::size_t batch_size = 32;
+    constexpr float learning_rate = 0.05f;
+    // print the running loss every this many batches
+    constexpr std::size_t log_every = 300;
 
     Mnist train;
     Mnist test;
@@ -134,56 +160,72 @@ int main(int argc, char** argv) {
     // the last dense layer outputs logits, softmax is applied inside the loss
     auto loss = std::make_unique<mlfo::layer::loss::CrossEntropyLoss<float>>();
     // mnist images are single channel 28 x 28
-    auto model = mlfo::model::Model<float>({1, 28, 28}, std::move(layers), std::move(loss));
+    auto model = mlfo::model::Model<float>({1, 28, 28}, std::move(layers), std::move(loss), batch_size);
     model.build();
     auto optim = mlfo::optimizer::SGD<float>(model, learning_rate);
     // the first output is the prediction, the second is the loss, see Model::build()
     const auto& prediction = model.outputs()[0].get();
     const auto& loss_value = model.outputs()[1].get();
 
-    // reused for every sample, so the loop doesn't allocate
-    std::vector<float> x(train.image_size);
-    std::vector<float> y(classes);
-    std::vector<std::size_t> order(train.count);
-    std::iota(order.begin(), order.end(), 0);
+    // reused for every batch, so the loop doesn't allocate
+    std::vector<float> x(batch_size * train.image_size);
+    std::vector<float> y(batch_size * classes);
+    std::vector<std::size_t> train_order(train.count);
+    std::iota(train_order.begin(), train_order.end(), 0);
+    std::vector<std::size_t> test_order(test.count);
+    std::iota(test_order.begin(), test_order.end(), 0);
 
     for (std::size_t epoch = 1; epoch <= epochs; epoch++) {
         const auto start = std::chrono::steady_clock::now();
-        std::shuffle(order.begin(), order.end(), generator);
+        std::shuffle(train_order.begin(), train_order.end(), generator);
         double running_loss = 0.0;
         std::size_t running_correct = 0;
-        // batch size is 1, so the parameters are updated after every sample
-        for (std::size_t step = 0; step < train.count; step++) {
-            fill_sample(train, order[step], x, y);
+        std::size_t running_samples = 0;
+        // the last batch holds the remainder when the dataset doesn't divide evenly
+        for (std::size_t first = 0, step = 1; first < train.count; first += batch_size, step++) {
+            const auto indices = std::span<const std::size_t>(train_order).subspan(
+                first, std::min(batch_size, train.count - first)
+            );
+            fill_batch(train, indices, classes, x, y);
             model.set_inputs({x});
             model.set_labels({y});
             model.forward();
             optim.zero_grad();
             model.backward();
             optim.step();
-            running_loss += loss_value.values()[0];
-            running_correct += argmax(prediction.values()) == train.labels[order[step]];
-            if ((step + 1) % log_every == 0) {
+            // the loss output holds one loss per sample
+            for (const float value : loss_value.values()) {
+                running_loss += value;
+            }
+            running_correct += count_correct(train, indices, prediction.values());
+            running_samples += indices.size();
+            if (step % log_every == 0) {
                 std::println(
                     "epoch {} [{}/{}] loss {:.5f} accuracy {:.2f}%",
-                    epoch, step + 1, train.count,
-                    running_loss / log_every, 100.0 * running_correct / log_every
+                    epoch, first + indices.size(), train.count,
+                    running_loss / running_samples, 100.0 * running_correct / running_samples
                 );
                 running_loss = 0.0;
                 running_correct = 0;
+                running_samples = 0;
             }
         }
 
         // evaluate on the test set, forward only
         double test_loss = 0.0;
         std::size_t test_correct = 0;
-        for (std::size_t i = 0; i < test.count; i++) {
-            fill_sample(test, i, x, y);
+        for (std::size_t first = 0; first < test.count; first += batch_size) {
+            const auto indices = std::span<const std::size_t>(test_order).subspan(
+                first, std::min(batch_size, test.count - first)
+            );
+            fill_batch(test, indices, classes, x, y);
             model.set_inputs({x});
             model.set_labels({y});
             model.forward();
-            test_loss += loss_value.values()[0];
-            test_correct += argmax(prediction.values()) == test.labels[i];
+            for (const float value : loss_value.values()) {
+                test_loss += value;
+            }
+            test_correct += count_correct(test, indices, prediction.values());
         }
         const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - start;
         std::println(
