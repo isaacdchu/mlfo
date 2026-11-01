@@ -153,7 +153,7 @@ int test(int argc, char** argv) {
     constexpr std::size_t batch_size = 32;
     mlfo::model::Model<float> model = [] {
         try {
-            return mlfo::model::Model<float>::load("models/mnist_cnn.mlfo", batch_size);
+            return mlfo::model::load<float>("models/mnist_cnn.mlfo", batch_size);
         } catch (const std::exception& e) {
             std::println(std::cerr, "{}", e.what());
             std::exit(1);

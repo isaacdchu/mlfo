@@ -49,7 +49,7 @@ public:
     // 0.1,0.2,0.3,0.4,0.5,0.6
     // 0.1,0.2,0.3
     // each derived class also has a static deserialize(std::istream&) that reads back everything
-    // after the type line, which Model::deserialize() reads to pick the class
+    // after the type line, which mlfo::model::deserialize() reads to pick the class
     virtual void serialize(std::ostream& os) const = 0;
 };
 

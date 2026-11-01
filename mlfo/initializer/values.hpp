@@ -13,7 +13,7 @@
 
 namespace mlfo::initializer {
 
-// copies the given values into the tensor, e.g. parameters read back by Model::deserialize()
+// copies the given values into the tensor, e.g. parameters read back by mlfo::model::deserialize()
 // unlike the other initializers it is tied to one shape, so it can only be used by one parameter
 template <mlfo::misc::Number T>
 class Values : public Initializer<T> {

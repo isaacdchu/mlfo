@@ -116,6 +116,14 @@ TEST(GradientCheck, DenseCrossEntropy) {
     );
 }
 
+TEST(GradientCheck, DenseTanh) {
+    Layers layers;
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(4));
+    layers.push_back(std::make_unique<mlfo::layer::activation::TanhActivation<double>>());
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(3));
+    check_gradients(std::move(layers), {1, 5}, 3);
+}
+
 TEST(GradientCheck, Conv2D) {
     Layers layers;
     layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<double>>(3, 3, 3));

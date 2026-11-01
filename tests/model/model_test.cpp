@@ -335,6 +335,7 @@ std::unique_ptr<mlfo::model::Model<float>> make_serializable_model() {
     layers.push_back(std::make_unique<mlfo::layer::activation::ReLUActivation<float>>());
     layers.push_back(std::make_unique<mlfo::layer::FlattenLayer<float>>());
     layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(3));
+    layers.push_back(std::make_unique<mlfo::layer::activation::TanhActivation<float>>());
     layers.push_back(std::make_unique<mlfo::layer::activation::SigmoidActivation<float>>());
     auto model = std::make_unique<mlfo::model::Model<float>>(
         Shape{1, 3, 3},
@@ -363,7 +364,7 @@ std::string serialized(const mlfo::model::Model<float>& model) {
 
 mlfo::model::Model<float> deserialized(const std::string& text) {
     std::istringstream is(text);
-    return mlfo::model::Model<float>::deserialize(is);
+    return mlfo::model::deserialize<float>(is);
 }
 
 } // namespace
@@ -393,7 +394,7 @@ TEST(Model, DeserializeRoundTrips) {
 TEST(Model, DeserializeUsesGivenBatchSize) {
     const auto original = make_serializable_model();
     std::istringstream is(serialized(*original));
-    const auto loaded = mlfo::model::Model<float>::deserialize(is, 4);
+    const auto loaded = mlfo::model::deserialize<float>(is, 4);
     EXPECT_EQ(loaded.max_batch_size(), 4u);
 }
 
@@ -430,7 +431,7 @@ TEST(Model, SaveAndLoadFile) {
     const auto original = make_serializable_model();
     const auto path = std::filesystem::temp_directory_path() / "mlfo_model_test_save_load.txt";
     original->save(path);
-    const auto loaded = mlfo::model::Model<float>::load(path);
+    const auto loaded = mlfo::model::load<float>(path);
     std::filesystem::remove(path);
     EXPECT_EQ(serialized(loaded), serialized(*original));
 }
@@ -438,5 +439,5 @@ TEST(Model, SaveAndLoadFile) {
 TEST(Model, LoadMissingFileThrows) {
     const auto path = std::filesystem::temp_directory_path() / "mlfo_model_test_missing.txt";
     std::filesystem::remove(path);
-    EXPECT_THROW(mlfo::model::Model<float>::load(path), std::runtime_error);
+    EXPECT_THROW(mlfo::model::load<float>(path), std::runtime_error);
 }
