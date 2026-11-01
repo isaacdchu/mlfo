@@ -12,7 +12,7 @@
 #include <stdexcept>
 #include <vector>
 
-#include <mlfo>
+#include <mlfo/mlfo.hpp>
 
 namespace {
 

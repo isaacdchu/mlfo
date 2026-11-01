@@ -1,0 +1,252 @@
+#ifndef MLFO_TENSOR_HPP
+#define MLFO_TENSOR_HPP
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <initializer_list>
+#include <iostream>
+#include <memory>
+#include <print>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+#include "../misc/concepts.hpp"
+
+namespace mlfo::tensor {
+
+namespace ops {
+
+enum class DIRECTION {
+    FORWARD,
+    BACKWARD
+};
+
+} // namespace mlfo::tensor::ops
+
+template <mlfo::misc::Number T>
+class Tensor;
+
+template <mlfo::misc::Number T>
+struct Operation {
+protected:
+    static std::vector<T>& values(Tensor<T>& tensor) {
+        return tensor.values_;
+    }
+    static std::vector<T>& gradients(Tensor<T>& tensor) {
+        return tensor.gradients_;
+    }
+};
+
+template <mlfo::misc::Number T>
+class Tensor {
+    friend struct Operation<T>;
+private:
+    std::vector<T> values_;
+    std::vector<T> gradients_;
+    std::size_t batch_size_; // number of batches the tensor contains
+    std::vector<std::size_t> shape_; // unbatched shape
+    std::vector<std::size_t> strides_; // strides for each non-batch dimension
+    std::size_t batch_stride_; // stride for the batch dimension
+    std::size_t rank_; // rank of the tensor (number of dimensions). batch is not a dimension
+    std::size_t size_; // number of elements in the tensor (including batches)
+    std::size_t unbatched_size_; // number of elements in one batch
+
+    std::string to_string_helper(
+        const std::vector<T>& data,
+        const std::vector<std::size_t>& shape,
+        std::size_t dim,
+        std::size_t& index
+    ) const {
+        if (dim + 1 == shape.size()) {
+            std::string result = "[";
+            for (std::size_t i = 0; i < shape[dim]; i++) {
+                result += std::to_string(data[index++]);
+                if (i < shape[dim] - 1) {
+                    result += ", ";
+                }
+            }
+            result += "]";
+            return result;
+        }
+        std::string result = "[";
+        for (std::size_t i = 0; i < shape[dim]; i++) {
+            result += to_string_helper(data, shape, dim + 1, index);
+            if (i < shape[dim] - 1) {
+                result += ", ";
+            }
+        }
+        result += "]";
+        return result;
+    }
+public:
+    // use batch size of 1 for unbatched tensors
+    // this allows broadcasting for tensor operations
+    Tensor(std::size_t batch_size, const std::vector<std::size_t>& shape) :
+    batch_size_(batch_size),
+    shape_(shape),
+    strides_(shape.size()),
+    batch_stride_(0),
+    rank_(shape.size()),
+    size_(0),
+    unbatched_size_(0)
+    {
+        // validate batch size and shape
+        if (batch_size_ == 0) {
+            throw std::invalid_argument(
+                "[mlfo::tensor::Tensor] Batch size must be greater than zero"
+            );
+        }
+        if (shape.empty()) {
+            throw std::invalid_argument("[mlfo::tensor::Tensor] Shape cannot be empty");
+        }
+        size_ = batch_size_;
+        for (std::size_t i = 0; i < shape_.size(); i++) {
+            if (shape_[i] == 0) {
+                throw std::invalid_argument(
+                    "[mlfo::tensor::Tensor] Shape dimensions must be greater than zero"
+                );
+            }
+            size_ *= shape_[i];
+        }
+        unbatched_size_ = size_ / batch_size_;
+        values_.resize(size_, T{0});
+        // gradients have the same batched layout as values
+        gradients_.resize(size_, T{0});
+
+        strides_[shape_.size() - 1] = 1;
+        for (std::size_t i = shape_.size() - 1; i > 0; i--) {
+            strides_[i - 1] = strides_[i] * shape_[i];
+        }
+        batch_stride_ = strides_[0] * shape_[0];
+    }
+
+    std::size_t flatten_index(std::size_t batch, const std::vector<std::size_t>& indices) const {
+        // does not perform bounds checking
+        std::size_t index = batch * batch_stride_;
+        for (std::size_t i = 0; i < strides_.size(); i++) {
+            index += indices[i] * strides_[i];
+        }
+        return index;
+    }
+
+    const std::vector<T>& values() const {
+        return values_;
+    }
+
+    // replaces every value (all batches, flattened) by copying into the existing buffer
+    // the size must match exactly. never allocates, so it is safe to call in a training loop
+    void set_values(std::span<const T> values) {
+        if (values.size() != values_.size()) {
+            throw std::invalid_argument(
+                "[mlfo::tensor::Tensor::set_values] Number of values does not match the tensor size"
+            );
+        }
+        std::ranges::copy(values, values_.begin());
+    }
+
+    // allows braced lists, e.g. set_values({1, 2, 3}), which a span cannot be built from
+    void set_values(std::initializer_list<T> values) {
+        set_values(std::span<const T>(values.begin(), values.size()));
+    }
+
+    const std::vector<T>& gradients() const {
+        return gradients_;
+    }
+
+    // replaces every gradient (all batches, flattened) by copying into the existing buffer
+    // the size must match exactly. never allocates
+    void set_gradients(std::span<const T> gradients) {
+        if (gradients.size() != gradients_.size()) {
+            throw std::invalid_argument(
+                "[mlfo::tensor::Tensor::set_gradients] Number of gradients does not match the tensor size"
+            );
+        }
+        std::ranges::copy(gradients, gradients_.begin());
+    }
+
+    void set_gradients(std::initializer_list<T> gradients) {
+        set_gradients(std::span<const T>(gradients.begin(), gradients.size()));
+    }
+
+    // sets every gradient to value, e.g. 1 to seed backward() from a loss
+    void fill_gradients(T value) {
+        std::fill(gradients_.begin(), gradients_.end(), value);
+    }
+
+    void zero_grad() {
+        fill_gradients(T{0});
+    }
+
+    std::size_t rank() const {
+        return rank_;
+    }
+
+    const std::vector<std::size_t>& shape() const {
+        return shape_;
+    }
+
+    std::size_t batch_size() const {
+        return batch_size_;
+    }
+
+    // changes the number of batches, keeping the unbatched shape. new batches are zero
+    // shrinking keeps the buffers' capacity, so growing back to a batch size the tensor has held
+    // before never allocates, e.g. for a smaller last batch of an epoch
+    void set_batch_size(std::size_t batch_size) {
+        if (batch_size == 0) {
+            throw std::invalid_argument(
+                "[mlfo::tensor::Tensor::set_batch_size] Batch size must be greater than zero"
+            );
+        }
+        batch_size_ = batch_size;
+        size_ = batch_size_ * unbatched_size_;
+        values_.resize(size_, T{0});
+        gradients_.resize(size_, T{0});
+    }
+
+    const std::vector<std::size_t>& strides() const {
+        return strides_;
+    }
+
+    std::size_t size() const {
+        return values_.size();
+    }
+
+    std::size_t unbatched_size() const {
+        return unbatched_size_;
+    }
+
+    std::string to_string() const {
+        std::string result = "Tensor(\n\tshape=[";
+        for (size_t i = 0; i < shape_.size(); i++) {
+            result += std::to_string(shape_[i]);
+            if (i < shape_.size() - 1) {
+                result += ", ";
+            }
+        }
+        result += "],\n\tbatches=" + std::to_string(batch_size());
+        result += ",\n\tvalues=";
+        std::size_t value_index = 0;
+        std::vector<std::size_t> shape_with_batch = shape_;
+        shape_with_batch.insert(shape_with_batch.begin(), batch_size());
+        result += to_string_helper(values_, shape_with_batch, 0, value_index);
+        if (gradients_.empty()) {
+            result += "\n)";
+            return result;
+        }
+        result += ",\n\tgradients=";
+        std::size_t gradient_index = 0;
+        std::vector<std::size_t> gradient_shape = shape_;
+        gradient_shape.insert(gradient_shape.begin(), batch_size_);
+        result += to_string_helper(gradients_, gradient_shape, 0, gradient_index);
+        result += "\n)";
+        return result;
+    }
+};
+
+} // namespace mlfo::tensor
+
+#endif // MLFO_TENSOR_HPP

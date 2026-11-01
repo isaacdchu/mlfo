@@ -8,7 +8,7 @@
 #include <sstream>
 #include <string>
 
-#include <mlfo>
+#include <mlfo/mlfo.hpp>
 
 namespace mlfo::tests {
 
