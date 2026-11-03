@@ -134,6 +134,21 @@ public:
         return this->parameters_;
     }
 
+    std::unique_ptr<mlfo::layer::Layer<T>> clone() const override {
+        if (this->parameters_.empty()) {
+            return std::make_unique<DenseLayer>(
+                output_size_, weight_initializer_, bias_initializer_
+            );
+        }
+        // initialize with the current parameters, so building doesn't rerun the initializers
+        // e.g. a random initializer, which would advance its generator
+        return std::make_unique<DenseLayer>(
+            output_size_,
+            std::make_shared<mlfo::initializer::Values<T>>(this->parameters_[0].get().values()),
+            std::make_shared<mlfo::initializer::Values<T>>(this->parameters_[1].get().values())
+        );
+    }
+
     // DenseLayer, then input_size,output_size, then the weights and biases
     void serialize(std::ostream& os) const override {
         const auto& params = parameters();

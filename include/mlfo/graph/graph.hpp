@@ -5,6 +5,7 @@
 #include <ranges>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -73,6 +74,30 @@ public:
         for (auto& node : nodes_) {
             node->forward();
         }
+    }
+
+    // the targets and every node they depend on, in topological order
+    // running forward() on just these computes the targets without the rest of the graph
+    // to be called after finalize()
+    std::vector<Node<T>*> ancestors(const std::vector<Node<T>*>& targets) const {
+        std::unordered_set<Node<T>*> needed(targets.begin(), targets.end());
+        std::vector<Node<T>*> stack(targets.begin(), targets.end());
+        while (!stack.empty()) {
+            Node<T>* node = stack.back();
+            stack.pop_back();
+            for (Node<T>& predecessor : node->predecessors()) {
+                if (needed.insert(&predecessor).second) {
+                    stack.push_back(&predecessor);
+                }
+            }
+        }
+        std::vector<Node<T>*> ordered;
+        for (const auto& node : nodes_) {
+            if (needed.contains(node.get())) {
+                ordered.push_back(node.get());
+            }
+        }
+        return ordered;
     }
 
     void backward() {

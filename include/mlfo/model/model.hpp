@@ -45,6 +45,9 @@ protected:
     std::vector<mlfo::graph::Node<mlfo::tensor::Tensor<T>>*> outputs_;
     // cached views of the output tensors, set by build()
     std::vector<std::reference_wrapper<const mlfo::tensor::Tensor<T>>> output_tensors_;
+    // the nodes needed for the model's outputs without the loss, in topological order, set by
+    // build(). forward(false) runs only these
+    std::vector<mlfo::graph::Node<mlfo::tensor::Tensor<T>>*> lossless_nodes_;
     // model parameters, set by build() and used by an optimizer
     std::vector<std::reference_wrapper<mlfo::tensor::Tensor<T>>> parameters_;
     // every tensor in the graph that is not a parameter, set by build()
@@ -150,6 +153,8 @@ public:
         }
         // topologically sort the graph
         graph_.finalize();
+        // the model output is outputs_.front(), the loss output (if any) follows it
+        lossless_nodes_ = graph_.ancestors({outputs_.front()});
         // collect parameters from all layers
         parameters_.clear();
         for (const auto& layer : layers_) {
@@ -240,11 +245,19 @@ public:
         return output_tensors_;
     }
 
-    void forward() {
+    // with compute_loss false, the loss layer is skipped, e.g. for inference without labels.
+    // the loss output in outputs() is then left stale, and the next backward() computes it
+    void forward(bool compute_loss = true) {
         if (!built_) {
             throw std::logic_error("[mlfo::model::Model::forward] Model has not been built");
         }
-        graph_.forward();
+        if (compute_loss) {
+            graph_.forward();
+            return;
+        }
+        for (auto* node : lossless_nodes_) {
+            node->forward();
+        }
     }
 
     void backward() {
@@ -261,6 +274,9 @@ public:
         for (const auto& tensor_ref : non_parameters_) {
             tensor_ref.get().zero_grad();
         }
+        // the loss may have been skipped by forward(false). nodes are only recomputed when
+        // invalidated, so this costs nothing after a full forward()
+        graph_.forward();
         // the loss output is the last output node, see build(). it holds one loss per sample, and
         // the loss being minimized is their mean, so each is seeded with 1 / batch size. this
         // keeps the gradient's scale, and so the learning rate, independent of the batch size
@@ -274,6 +290,61 @@ public:
             throw std::logic_error("[mlfo::model::Model::inputs] Model has not been built");
         }
         return this->parameters_;
+    }
+
+    // a deep copy: same name, layers, loss and parameter values, with its own graph built for
+    // batch_size samples at a time. gradients and optimizer state are not copied. to refresh
+    // an existing copy without allocating, use copy_parameters_from()
+    Model clone(std::size_t batch_size) const {
+        if (!built_) {
+            throw std::logic_error("[mlfo::model::Model::clone] Model has not been built");
+        }
+        std::vector<std::unique_ptr<mlfo::layer::Layer<T>>> layers;
+        layers.reserve(layers_.size());
+        for (const auto& layer : layers_) {
+            layers.push_back(layer->clone());
+        }
+        Model copy(
+            input_shape_, std::move(layers), loss_ ? loss_->clone_loss() : nullptr, batch_size
+        );
+        copy.name(name_);
+        // the cloned layers are initialized with this model's parameters when built
+        copy.build();
+        return copy;
+    }
+
+    // as above, built for the same batch size as this model
+    Model clone() const {
+        return clone(max_batch_size_);
+    }
+
+    // copies every parameter value from other, which must have the same architecture, e.g. a
+    // clone() of this model. copies into the existing buffers, so this never allocates and can
+    // be called in a training loop, e.g. to refresh a frozen self-play opponent made by clone(). gradients and
+    // optimizer state are not copied
+    void copy_parameters_from(const Model& other) {
+        if (!built_ || !other.built_) {
+            throw std::logic_error(
+                "[mlfo::model::Model::copy_parameters_from] Model has not been built"
+            );
+        }
+        if (parameters_.size() != other.parameters_.size()) {
+            throw std::invalid_argument(
+                "[mlfo::model::Model::copy_parameters_from] Models have different parameters"
+            );
+        }
+        // check every size first, so a mismatch leaves this model unchanged
+        for (std::size_t i = 0; i < parameters_.size(); i++) {
+            if (parameters_[i].get().size() != other.parameters_[i].get().size()) {
+                throw std::invalid_argument(
+                    "[mlfo::model::Model::copy_parameters_from] Models have different parameters"
+                );
+            }
+        }
+        for (std::size_t i = 0; i < parameters_.size(); i++) {
+            parameters_[i].get().set_values(other.parameters_[i].get().values());
+        }
+        graph_.invalidate();
     }
 
     std::string to_string() const {

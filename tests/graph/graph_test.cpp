@@ -140,6 +140,23 @@ TEST(GraphTest, ForwardRunsInTopologicalOrderBackwardInReverse) {
     EXPECT_EQ(order, (std::vector<int>{3, 2}));
 }
 
+TEST(GraphTest, AncestorsAreTargetsAndPredecessorsInTopologicalOrder) {
+    // a -> b -> c, with d depending on b and e, and e unrelated to c
+    Graph<int> graph;
+    Node<int>& d = graph.add_node(4);
+    Node<int>& c = graph.add_node(3);
+    Node<int>& e = graph.add_node(5);
+    Node<int>& b = graph.add_node(2);
+    Node<int>& a = graph.add_node(1);
+    b.add_predecessor(a, noop());
+    c.add_predecessor(b, noop());
+    d.add_predecessors({b, e}, noop());
+    graph.finalize();
+
+    const auto ancestors = graph.ancestors({&c});
+    EXPECT_EQ(ancestors, (std::vector<Node<int>*>{&a, &b, &c}));
+}
+
 TEST(GraphTest, SecondForwardDoesNotRerunUntilInvalidated) {
     Graph<int> graph;
     std::vector<int> order;

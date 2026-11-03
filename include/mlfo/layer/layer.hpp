@@ -1,6 +1,7 @@
 #ifndef MLFO_LAYER_HPP
 #define MLFO_LAYER_HPP
 
+#include <memory>
 #include <cstddef>
 #include <iostream>
 #include <vector>
@@ -41,6 +42,11 @@ public:
     ) = 0;
 
     virtual const std::vector<std::reference_wrapper<mlfo::tensor::Tensor<T>>>& parameters() const = 0;
+
+    // an unbuilt layer with the same configuration, for building into another graph. if this
+    // layer has been built, the copy is initialized with its current parameter values when built,
+    // otherwise it shares this layer's initializers
+    virtual std::unique_ptr<Layer<T>> clone() const = 0;
 
     // layer type and parameters; initializer not needed
     // format:

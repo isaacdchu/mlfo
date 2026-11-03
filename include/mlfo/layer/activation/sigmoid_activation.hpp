@@ -48,6 +48,10 @@ public:
         return output_node;
     }
 
+    std::unique_ptr<mlfo::layer::Layer<T>> clone() const override {
+        return std::make_unique<SigmoidActivation>();
+    }
+
     void serialize(std::ostream& os) const override {
         os << "SigmoidActivation\n";
     }

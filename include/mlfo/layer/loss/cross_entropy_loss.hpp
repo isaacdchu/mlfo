@@ -59,6 +59,10 @@ public:
         return output_node;
     }
 
+    std::unique_ptr<mlfo::layer::loss::LossLayer<T>> clone_loss() const override {
+        return std::make_unique<CrossEntropyLoss>();
+    }
+
     void serialize(std::ostream& os) const override {
         os << "CrossEntropyLoss\n";
     }

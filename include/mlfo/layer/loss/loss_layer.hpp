@@ -37,6 +37,13 @@ public:
         mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input_node
     ) override = 0;
 
+    // as Layer::clone(), typed as a loss layer so the model can hold it as one
+    virtual std::unique_ptr<LossLayer<T>> clone_loss() const = 0;
+
+    std::unique_ptr<mlfo::layer::Layer<T>> clone() const override final {
+        return clone_loss();
+    }
+
     // loss layers have no parameters, so this is always empty
     const std::vector<std::reference_wrapper<mlfo::tensor::Tensor<T>>>& parameters() const override {
         return this->parameters_;

@@ -109,6 +109,10 @@ public:
         return output_node;
     }
 
+    std::unique_ptr<mlfo::layer::Layer<T>> clone() const override {
+        return std::make_unique<MaxPool>(r_, s_, stride_h_, stride_w_);
+    }
+
     // MaxPool, then r,s,stride_h,stride_w
     void serialize(std::ostream& os) const override {
         os << "MaxPool\n";

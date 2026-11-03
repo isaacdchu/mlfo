@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <memory>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -132,6 +133,57 @@ TEST(Model, ForwardMatchesHandComputation) {
     // hidden = [3, 3]; output = 2 * 3 + 3 * 3 + 1
     ASSERT_EQ(model.outputs()[0].get().values().size(), 1u);
     EXPECT_FLOAT_EQ(model.outputs()[0].get().values()[0], 16.0f);
+}
+
+TEST(Model, ForwardWithoutLossSkipsLossLayer) {
+    TestModel model({1, 2}, make_layers({2, 1}), std::make_unique<mlfo::layer::loss::MSELoss<float>>());
+    model.build();
+    model.set_parameters({1, 0, 1, 1}, {0, 1}, {2, 3}, {1});
+    const std::vector<float> inputs = {1, 2};
+    model.set_inputs({inputs});
+    model.forward(false);
+    ASSERT_EQ(model.outputs().size(), 2u);
+    EXPECT_FLOAT_EQ(model.outputs()[0].get().values()[0], 16.0f);
+    // no labels were set and the loss was not computed, so it keeps its initial value
+    EXPECT_FLOAT_EQ(model.outputs()[1].get().values()[0], 0.0f);
+
+    // a full forward() then computes only the loss: (16 - 6)^2 / 2
+    const std::vector<float> labels = {6};
+    model.set_labels({labels});
+    model.forward();
+    EXPECT_FLOAT_EQ(model.outputs()[0].get().values()[0], 16.0f);
+    EXPECT_FLOAT_EQ(model.outputs()[1].get().values()[0], 50.0f);
+}
+
+TEST(Model, BackwardAfterForwardWithoutLossComputesLoss) {
+    auto make_model = []() {
+        auto model = std::make_unique<TestModel>(
+            Shape{1, 2}, make_layers({2, 1}), std::make_unique<mlfo::layer::loss::MSELoss<float>>()
+        );
+        model->build();
+        model->set_parameters({1, 0, 1, 1}, {0, 1}, {2, 3}, {1});
+        for (const auto& param_ref : model->parameters()) {
+            param_ref.get().zero_grad();
+        }
+        const std::vector<float> inputs = {1, 2};
+        const std::vector<float> labels = {6};
+        model->set_inputs({inputs});
+        model->set_labels({labels});
+        return model;
+    };
+    auto full = make_model();
+    full->forward();
+    full->backward();
+    auto partial = make_model();
+    partial->forward(false);
+    partial->backward();
+
+    EXPECT_FLOAT_EQ(partial->outputs()[1].get().values()[0], 50.0f);
+    for (std::size_t p = 0; p < full->parameters().size(); p++) {
+        EXPECT_EQ(
+            partial->parameters()[p].get().gradients(), full->parameters()[p].get().gradients()
+        ) << "parameter " << p;
+    }
 }
 
 TEST(Model, SetInputsRecomputesForward) {
@@ -440,4 +492,87 @@ TEST(Model, LoadMissingFileThrows) {
     const auto path = std::filesystem::temp_directory_path() / "mlfo_model_test_missing.txt";
     std::filesystem::remove(path);
     EXPECT_THROW(mlfo::model::load<float>(path), std::runtime_error);
+}
+
+TEST(Model, CloneIsAnIndependentDeepCopy) {
+    const auto original = make_serializable_model();
+    auto copy = original->clone();
+    EXPECT_EQ(copy.name(), "round trip");
+    EXPECT_EQ(copy.max_batch_size(), original->max_batch_size());
+    EXPECT_EQ(serialized(copy), serialized(*original));
+
+    // changing the copy's parameters leaves the original unchanged
+    const std::string before = serialized(*original);
+    for (const auto& param : copy.parameters()) {
+        std::vector<float> values(param.get().size(), 0.25f);
+        param.get().set_values(values);
+    }
+    EXPECT_EQ(serialized(*original), before);
+    EXPECT_NE(serialized(copy), before);
+}
+
+TEST(Model, CloneUsesGivenBatchSize) {
+    const auto original = make_serializable_model();
+    const auto copy = original->clone(8);
+    EXPECT_EQ(copy.max_batch_size(), 8u);
+}
+
+TEST(Model, CloneBeforeBuildThrows) {
+    mlfo::model::Model<float> model(Shape{1, 2}, make_layers({1}));
+    EXPECT_THROW(model.clone(), std::logic_error);
+}
+
+TEST(Model, CopyParametersFromRestoresOutputs) {
+    const auto original = make_serializable_model();
+    auto copy = original->clone();
+    const std::vector<float> x = {1, -2, 3, 0.5f, 0, -1, 2, 4, -3};
+    const std::vector<float> y = {0, 1, 0.5f};
+    original->set_inputs({x});
+    original->set_labels({y});
+    original->forward();
+    const auto expected = original->outputs().front().get().values();
+
+    // scramble the copy's parameters, run it, then copy them back
+    for (const auto& param : copy.parameters()) {
+        std::vector<float> values(param.get().size(), 0.25f);
+        param.get().set_values(values);
+    }
+    copy.set_inputs({x});
+    copy.set_labels({y});
+    copy.forward();
+    EXPECT_NE(copy.outputs().front().get().values(), expected);
+
+    // copy_parameters_from() invalidates the graph, so forward() recomputes
+    copy.copy_parameters_from(*original);
+    copy.forward();
+    EXPECT_EQ(copy.outputs().front().get().values(), expected);
+}
+
+TEST(Model, CopyParametersFromRejectsDifferentArchitecture) {
+    mlfo::model::Model<float> a(Shape{1, 2}, make_layers({3, 1}));
+    mlfo::model::Model<float> b(Shape{1, 2}, make_layers({4, 1}));
+    mlfo::model::Model<float> c(Shape{1, 2}, make_layers({3}));
+    mlfo::model::Model<float> unbuilt(Shape{1, 2}, make_layers({3, 1}));
+    a.build();
+    b.build();
+    c.build();
+    EXPECT_THROW(a.copy_parameters_from(b), std::invalid_argument);
+    EXPECT_THROW(a.copy_parameters_from(c), std::invalid_argument);
+    EXPECT_THROW(a.copy_parameters_from(unbuilt), std::logic_error);
+}
+
+TEST(Model, CloneDoesNotRerunInitializers) {
+    // cloning copies the parameters, so a random initializer's generator is left untouched
+    mlfo::initializer::Generator generator(42);
+    const auto init = std::make_shared<mlfo::initializer::Random<std::normal_distribution<float>>>(
+        generator, std::normal_distribution<float>(0, 1)
+    );
+    Layers layers;
+    layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(4, init, init));
+    mlfo::model::Model<float> model(Shape{1, 3}, std::move(layers));
+    model.build();
+    const auto state = generator;
+    const auto copy = model.clone();
+    EXPECT_EQ(generator, state);
+    EXPECT_EQ(serialized(copy), serialized(model));
 }

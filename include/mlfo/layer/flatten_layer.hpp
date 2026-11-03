@@ -60,6 +60,10 @@ public:
         return this->parameters_;
     }
 
+    std::unique_ptr<Layer<T>> clone() const override {
+        return std::make_unique<FlattenLayer>();
+    }
+
     void serialize(std::ostream& os) const override {
         os << "FlattenLayer\n";
     }
