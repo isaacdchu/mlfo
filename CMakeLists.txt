@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(mlfo VERSION 0.3.0 LANGUAGES CXX)
+project(mlfo VERSION 0.4.0 LANGUAGES CXX)
 
 add_library(mlfo INTERFACE)
 add_library(mlfo::mlfo ALIAS mlfo)

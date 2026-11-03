@@ -17,7 +17,7 @@ With CMake `FetchContent`:
 include(FetchContent)
 FetchContent_Declare(mlfo
     GIT_REPOSITORY https://github.com/isaacdchu/mlfo.git
-    GIT_TAG v0.3.0
+    GIT_TAG v0.4.0
 )
 FetchContent_MakeAvailable(mlfo)
 
