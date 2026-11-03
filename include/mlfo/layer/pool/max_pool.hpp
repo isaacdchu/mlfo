@@ -27,6 +27,8 @@ private:
     // pooling stride, defaults to the window size (non-overlapping windows)
     std::size_t stride_h_;
     std::size_t stride_w_;
+    // where each output of the last forward pass came from in the input, read by the backward pass
+    std::vector<std::size_t> indices_;
 public:
     // channels last, the input dimensions (h, w) are taken from the first 2 dims of the input node
     // when built, any dims after them are channels
@@ -100,6 +102,7 @@ public:
                     direction,
                     output_node_tensor,
                     input_node_tensor,
+                    this->indices_,
                     this->r_,
                     this->s_,
                     this->stride_h_,

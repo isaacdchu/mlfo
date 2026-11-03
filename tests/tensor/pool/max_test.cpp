@@ -151,6 +151,66 @@ TEST(MaxBackward, AccumulatesIntoExistingGradients) {
     expect_floats(a.gradients(), {1, 6, 1, 1});
 }
 
+TEST(MaxIndices, ForwardRecordsWhereEachMaxCameFrom) {
+    // 2 batches of 3x3 with 2 channels, 2x2 window, stride 2, so the right and bottom are clipped
+    std::vector<float> values(2 * 3 * 3 * 2);
+    for (std::size_t i = 0; i < values.size(); i++) {
+        values[i] = static_cast<float>((i * 7) % 11);
+    }
+    auto a = make(2, {3, 3, 2}, values);
+    Tensor<float> out(2, {2, 2, 2});
+    std::vector<std::size_t> indices;
+    Max<float>::call(DIRECTION::FORWARD, out, a, indices, 2, 2, 2, 2);
+    ASSERT_EQ(indices.size(), out.size());
+    for (std::size_t i = 0; i < indices.size(); i++) {
+        EXPECT_FLOAT_EQ(a.values()[indices[i]], out.values()[i]) << "index " << i;
+    }
+}
+
+TEST(MaxIndices, BackwardMatchesRecomputingTheMaxes) {
+    std::vector<float> values(2 * 5 * 4 * 3);
+    for (std::size_t i = 0; i < values.size(); i++) {
+        values[i] = static_cast<float>((i * 5) % 7);  // plenty of ties
+    }
+    std::vector<float> out_gradients(2 * 2 * 2 * 3);
+    for (std::size_t i = 0; i < out_gradients.size(); i++) {
+        out_gradients[i] = static_cast<float>(i + 1);
+    }
+    // 3x3 window with stride 2 overlaps, so some elements receive several gradients
+    auto cached = make(2, {5, 4, 3}, values);
+    Tensor<float> cached_out(2, {2, 2, 3});
+    TensorAccess<float>::gradients(cached_out) = out_gradients;
+    std::vector<std::size_t> indices;
+    Max<float>::call(DIRECTION::FORWARD, cached_out, cached, indices, 3, 3, 2, 2);
+    Max<float>::call(DIRECTION::BACKWARD, cached_out, cached, indices, 3, 3, 2, 2);
+
+    auto recomputed = make(2, {5, 4, 3}, values);
+    Tensor<float> recomputed_out(2, {2, 2, 3});
+    TensorAccess<float>::gradients(recomputed_out) = out_gradients;
+    Max<float>::call(DIRECTION::BACKWARD, recomputed_out, recomputed, 3, 3, 2, 2);
+    expect_floats(cached.gradients(), recomputed.gradients());
+}
+
+TEST(MaxIndices, TiesGoToFirstElement) {
+    auto a = make(1, {2, 2, 1}, {3, 3, 3, 3});
+    Tensor<float> out(1, {1, 1, 1});
+    TensorAccess<float>::gradients(out) = {1};
+    std::vector<std::size_t> indices;
+    Max<float>::call(DIRECTION::FORWARD, out, a, indices, 2, 2, 2, 2);
+    Max<float>::call(DIRECTION::BACKWARD, out, a, indices, 2, 2, 2, 2);
+    expect_floats(a.gradients(), {1, 0, 0, 0});
+}
+
+TEST(MaxIndices, BackwardBeforeForwardThrows) {
+    Tensor<float> a(1, {2, 2});
+    Tensor<float> out(1, {1, 1});
+    std::vector<std::size_t> indices;
+    EXPECT_THROW(
+        Max<float>::call(DIRECTION::BACKWARD, out, a, indices, 2, 2, 2, 2),
+        std::logic_error
+    );
+}
+
 TEST(MaxCall, RejectsWrongOutputShape) {
     Tensor<float> a(1, {4, 4});
     Tensor<float> out(1, {3, 3});

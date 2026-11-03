@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <concepts>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include "../../misc/concepts.hpp"
@@ -14,19 +15,23 @@ namespace mlfo::tensor::pool {
 // channels last max pooling
 // a has shape (H, W, ...), out has shape (P, Q, ...)
 // every dimension after the first 2 is treated as a channel, so (H, W) is a single channel
+//
+// the forward pass records which element of a each output came from, so the backward pass only
+// has to route each output gradient to that element. the caller owns the indices, so every
+// pooling layer keeps its own, and it must run forward before backward
 template <misc::Number T>
 struct Max : public mlfo::tensor::Operation<T> {
 private:
-    // flat index (within one batch) of the max element of the window that produces out[pi, qi, ci]
+    // writes the max of every window into out and the flat index into a of where it came from
+    // into indices, which must have one entry per element of out
     // if pooling window goes out of bounds, only consider the valid elements
     // ties go to the first element in row-major order
-    static inline std::size_t argmax(
+    static inline void find_max(
         const Tensor<T>& a,
-        std::size_t a_batch_offset,
-        std::size_t c,
-        std::size_t ci,
-        std::size_t pi,
-        std::size_t qi,
+        T* out_values,
+        std::size_t* indices,
+        std::size_t p,
+        std::size_t q,
         std::size_t r,
         std::size_t s,
         std::size_t stride_h,
@@ -34,25 +39,48 @@ private:
     ) {
         const std::size_t h = a.shape()[0];
         const std::size_t w = a.shape()[1];
-        const std::size_t h_start = pi * stride_h;
-        const std::size_t w_start = qi * stride_w;
-        const std::size_t h_end = std::min(h_start + r, h);
-        const std::size_t w_end = std::min(w_start + s, w);
-        std::size_t best = (h_start * w + w_start) * c + ci;
-        for (std::size_t hi = h_start; hi < h_end; hi++) {
-            for (std::size_t wi = w_start; wi < w_end; wi++) {
-                const std::size_t index = (hi * w + wi) * c + ci;
-                if (a.values()[a_batch_offset + index] > a.values()[a_batch_offset + best]) {
-                    best = index;
+        const std::size_t c = a.unbatched_size() / (h * w);
+        const T* a_values = a.values().data();
+        // the channels of a position are contiguous, so a window is walked once and every channel's
+        // running max is updated together
+        for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
+            const std::size_t a_batch_offset = batch * a.unbatched_size();
+            const std::size_t out_batch_offset = batch * p * q * c;
+            for (std::size_t pi = 0; pi < p; pi++) {
+                const std::size_t h_start = pi * stride_h;
+                const std::size_t h_end = std::min(h_start + r, h);
+                for (std::size_t qi = 0; qi < q; qi++) {
+                    const std::size_t w_start = qi * stride_w;
+                    const std::size_t w_end = std::min(w_start + s, w);
+                    T* best = out_values + out_batch_offset + (pi * q + qi) * c;
+                    std::size_t* best_index = indices + out_batch_offset + (pi * q + qi) * c;
+                    // every window starts inside a, so its first element initializes the max
+                    const std::size_t first = a_batch_offset + (h_start * w + w_start) * c;
+                    for (std::size_t ci = 0; ci < c; ci++) {
+                        best[ci] = a_values[first + ci];
+                        best_index[ci] = first + ci;
+                    }
+                    for (std::size_t hi = h_start; hi < h_end; hi++) {
+                        for (std::size_t wi = w_start; wi < w_end; wi++) {
+                            const std::size_t position = a_batch_offset + (hi * w + wi) * c;
+                            for (std::size_t ci = 0; ci < c; ci++) {
+                                // strictly greater, so ties keep the earlier element
+                                if (a_values[position + ci] > best[ci]) {
+                                    best[ci] = a_values[position + ci];
+                                    best_index[ci] = position + ci;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
-        return best;
     }
 
     static inline void max_forward(
         Tensor<T>& out,
         const Tensor<T>& a,
+        std::vector<std::size_t>& indices,
         std::size_t r,
         std::size_t s,
         std::size_t stride_h,
@@ -60,80 +88,36 @@ private:
     ) {
         // out[p, q, ...] = max over the window a[p * stride_h + [0, r), q * stride_w + [0, s), ...]
         auto& out_values = mlfo::tensor::Operation<T>::values(out);
-        const std::size_t p = out.shape()[0];
-        const std::size_t q = out.shape()[1];
-        const std::size_t c = out.unbatched_size() / (p * q);
-        for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
-            const std::size_t a_batch_offset = batch * a.unbatched_size();
-            const std::size_t out_batch_offset = batch * out.unbatched_size();
-            for (std::size_t pi = 0; pi < p; pi++) {
-                for (std::size_t qi = 0; qi < q; qi++) {
-                    for (std::size_t ci = 0; ci < c; ci++) {
-                        const std::size_t best = argmax(
-                            a, a_batch_offset, c, ci, pi, qi, r, s, stride_h, stride_w
-                        );
-                        out_values[out_batch_offset + (pi * q + qi) * c + ci] = (
-                            a.values()[a_batch_offset + best]
-                        );
-                    }
-                }
-            }
-        }
+        indices.resize(out.size());
+        find_max(
+            a, out_values.data(), indices.data(),
+            out.shape()[0], out.shape()[1], r, s, stride_h, stride_w
+        );
     }
 
     static inline void max_backward(
         const Tensor<T>& out,
         Tensor<T>& a,
-        std::size_t r,
-        std::size_t s,
-        std::size_t stride_h,
-        std::size_t stride_w
+        const std::vector<std::size_t>& indices
     ) {
         // propagate gradients to a
         // dL/da = dL/dout for the max element of each window, 0 for the rest
         // overlapping windows accumulate into the same element
+        if (indices.size() != out.size()) {
+            throw std::logic_error(
+                "[tensor::pool::max] Backward requires the indices from a forward pass"
+            );
+        }
         auto& a_gradients = mlfo::tensor::Operation<T>::gradients(a);
-        const std::size_t p = out.shape()[0];
-        const std::size_t q = out.shape()[1];
-        const std::size_t c = out.unbatched_size() / (p * q);
-        for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
-            const std::size_t a_batch_offset = batch * a.unbatched_size();
-            const std::size_t out_batch_offset = batch * out.unbatched_size();
-            for (std::size_t pi = 0; pi < p; pi++) {
-                for (std::size_t qi = 0; qi < q; qi++) {
-                    for (std::size_t ci = 0; ci < c; ci++) {
-                        const std::size_t best = argmax(
-                            a, a_batch_offset, c, ci, pi, qi, r, s, stride_h, stride_w
-                        );
-                        a_gradients[a_batch_offset + best] += (
-                            out.gradients()[out_batch_offset + (pi * q + qi) * c + ci]
-                        );
-                    }
-                }
-            }
+        const auto& out_gradients = out.gradients();
+        for (std::size_t i = 0; i < indices.size(); i++) {
+            a_gradients[indices[i]] += out_gradients[i];
         }
     }
 
-public:
-    Max() = delete;
-
-    // number of windows along a dimension of size n with window size k and the given stride
-    // the last window may run past the end (ceil mode), but every window starts inside the input
-    static std::size_t output_size(std::size_t n, std::size_t k, std::size_t stride) {
-        if (n <= k) {
-            return 1;
-        }
-        std::size_t size = (n - k + stride - 1) / stride + 1;
-        if ((size - 1) * stride >= n) {
-            size--;
-        }
-        return size;
-    }
-
-    static void call(
-        ops::DIRECTION direction,
-        Tensor<T>& out,
-        Tensor<T>& a,
+    static void validate(
+        const Tensor<T>& out,
+        const Tensor<T>& a,
         std::size_t r,
         std::size_t s,
         std::size_t stride_h,
@@ -180,13 +164,76 @@ public:
                 "[tensor::pool::max] Output height and width do not match the pooling parameters"
             );
         }
+    }
+
+public:
+    Max() = delete;
+
+    // number of windows along a dimension of size n with window size k and the given stride
+    // the last window may run past the end (ceil mode), but every window starts inside the input
+    static std::size_t output_size(std::size_t n, std::size_t k, std::size_t stride) {
+        if (n <= k) {
+            return 1;
+        }
+        std::size_t size = (n - k + stride - 1) / stride + 1;
+        if ((size - 1) * stride >= n) {
+            size--;
+        }
+        return size;
+    }
+
+    // forward fills indices with where each output came from, backward reads them
+    static void call(
+        ops::DIRECTION direction,
+        Tensor<T>& out,
+        Tensor<T>& a,
+        std::vector<std::size_t>& indices,
+        std::size_t r,
+        std::size_t s,
+        std::size_t stride_h,
+        std::size_t stride_w
+    ) {
+        validate(out, a, r, s, stride_h, stride_w);
         switch (direction) {
             case mlfo::tensor::ops::DIRECTION::FORWARD:
-                max_forward(out, a, r, s, stride_h, stride_w);
+                max_forward(out, a, indices, r, s, stride_h, stride_w);
                 return;
             case mlfo::tensor::ops::DIRECTION::BACKWARD:
-                max_backward(out, a, r, s, stride_h, stride_w);
+                max_backward(out, a, indices);
                 return;
+            default:
+                throw std::invalid_argument(
+                    "[tensor::pool::max] Invalid direction"
+                );
+        }
+    }
+
+    // without indices from the caller, backward finds the maxes again from a's current values
+    static void call(
+        ops::DIRECTION direction,
+        Tensor<T>& out,
+        Tensor<T>& a,
+        std::size_t r,
+        std::size_t s,
+        std::size_t stride_h,
+        std::size_t stride_w
+    ) {
+        validate(out, a, r, s, stride_h, stride_w);
+        std::vector<std::size_t> indices(out.size());
+        switch (direction) {
+            case mlfo::tensor::ops::DIRECTION::FORWARD:
+                max_forward(out, a, indices, r, s, stride_h, stride_w);
+                return;
+            case mlfo::tensor::ops::DIRECTION::BACKWARD: {
+                // the maxes are only needed for their indices, so they go to a scratch copy
+                std::vector<T> maxes(out.size());
+                find_max(
+                    a, maxes.data(), indices.data(),
+                    out.shape()[0], out.shape()[1], r, s, stride_h, stride_w
+                );
+                max_backward(out, a, indices);
+                return;
+            }
             default:
                 throw std::invalid_argument(
                     "[tensor::pool::max] Invalid direction"
