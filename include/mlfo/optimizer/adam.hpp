@@ -4,10 +4,15 @@
 #include <cmath>
 #include <cstddef>
 #include <functional>
+#include <istream>
+#include <memory>
+#include <ostream>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "../misc/concepts.hpp"
+#include "../misc/serialization.hpp"
 #include "../model/model.hpp"
 #include "../tensor/ops.hpp"
 #include "../tensor/tensor.hpp"
@@ -49,6 +54,25 @@ private:
             v_.emplace_back(param_ref.get().size(), T{0});
         }
     }
+
+    // throws unless the moments, if allocated, fit the model's parameters
+    void check_moments(const char* where) const {
+        if (m_.empty()) {
+            return;
+        }
+        const auto& parameters = this->model_.parameters();
+        bool fits = m_.size() == parameters.size() && v_.size() == parameters.size();
+        for (std::size_t p = 0; fits && p < parameters.size(); p++) {
+            fits = m_[p].size() == parameters[p].get().size() &&
+                v_[p].size() == parameters[p].get().size();
+        }
+        if (!fits) {
+            throw std::invalid_argument(
+                std::string("[mlfo::optimizer::Adam::") + where +
+                "] Moments do not match the model's parameters"
+            );
+        }
+    }
 public:
     Adam(
         mlfo::model::Model<T>& model,
@@ -78,6 +102,69 @@ public:
                 "[mlfo::optimizer::Adam] Epsilon must be greater than zero"
             );
         }
+    }
+
+    void set_learning_rate(T learning_rate) {
+        if (learning_rate <= T{0}) {
+            throw std::invalid_argument(
+                "[mlfo::optimizer::Adam::set_learning_rate] Learning rate must be greater than zero"
+            );
+        }
+        learning_rate_ = learning_rate;
+    }
+
+    // the number of steps taken so far is implied by beta1^t and beta2^t
+    // Adam, then learning rate, beta1, beta2 and epsilon, then beta1^t and beta2^t, then the
+    // number of parameters with moments (0 before the first step), then for each parameter its
+    // first moment followed by its second moment
+    void serialize(std::ostream& os) const override {
+        os << "Adam\n";
+        mlfo::misc::write_line(os, std::vector<T>{learning_rate_, beta1_, beta2_, epsilon_});
+        mlfo::misc::write_line(os, std::vector<T>{beta1_power_, beta2_power_});
+        mlfo::misc::write_line(os, std::vector<std::size_t>{m_.size()});
+        for (std::size_t p = 0; p < m_.size(); p++) {
+            mlfo::misc::write_line(os, m_[p]);
+            mlfo::misc::write_line(os, v_[p]);
+        }
+    }
+
+    // reads what serialize() wrote after the type name. model must be built, as the moments'
+    // sizes are taken from its parameters
+    static std::unique_ptr<Adam<T>> deserialize(std::istream& is, mlfo::model::Model<T>& model) {
+        const std::vector<T> hyperparameters = mlfo::misc::read_values<T>(is, 4);
+        auto adam = std::make_unique<Adam<T>>(
+            model, hyperparameters[0], hyperparameters[1], hyperparameters[2], hyperparameters[3]
+        );
+        const std::vector<T> powers = mlfo::misc::read_values<T>(is, 2);
+        adam->beta1_power_ = powers[0];
+        adam->beta2_power_ = powers[1];
+        const std::size_t count = mlfo::misc::read_values<std::size_t>(is, 1)[0];
+        if (count == 0) {
+            return adam;
+        }
+        const auto& parameters = model.parameters();
+        if (count != parameters.size()) {
+            throw std::runtime_error(
+                "[mlfo::optimizer::Adam::deserialize] Moments do not match the model's parameters"
+            );
+        }
+        adam->m_.reserve(count);
+        adam->v_.reserve(count);
+        for (const auto& param_ref : parameters) {
+            adam->m_.push_back(mlfo::misc::read_values<T>(is, param_ref.get().size()));
+            adam->v_.push_back(mlfo::misc::read_values<T>(is, param_ref.get().size()));
+        }
+        return adam;
+    }
+
+    std::unique_ptr<Optimizer<T>> clone(mlfo::model::Model<T>& model) const override {
+        auto adam = std::make_unique<Adam<T>>(model, learning_rate_, beta1_, beta2_, epsilon_);
+        adam->beta1_power_ = beta1_power_;
+        adam->beta2_power_ = beta2_power_;
+        adam->m_ = m_;
+        adam->v_ = v_;
+        adam->check_moments("clone");
+        return adam;
     }
 
 protected:

@@ -42,6 +42,28 @@ Then include everything at once:
 or just the parts you need, e.g. `<mlfo/tensor/tensor.hpp>`, `<mlfo/model/model.hpp>`,
 `<mlfo/layer/dense_layer.hpp>`.
 
+## Checkpoints
+
+`model.save(path)` / `mlfo::model::load<T>(path)` keep only the architecture and weights.
+To pause and resume training, save a checkpoint, which also keeps the parameters' gradients
+and the optimizer's hyperparameters and state (e.g. Adam's moments and step count):
+
+```cpp
+mlfo::model::save_checkpoint("models/run.ckpt", model, optimizer);
+
+// later: the model and optimizer come back together, already wired up
+auto ckpt = mlfo::model::load_checkpoint<float>("models/run.ckpt", batch_size);
+ckpt.optimizer->zero_grad();
+ckpt.model->backward();
+ckpt.optimizer->step();
+
+// in-memory copy that trains independently of the original
+auto fork = mlfo::model::clone_checkpoint(model, optimizer);
+```
+
+The epoch counter and data loader's shuffle state are part of your training loop, not the
+checkpoint.
+
 ## Compiling
 Configure once:
 ```bash

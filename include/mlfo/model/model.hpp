@@ -293,8 +293,9 @@ public:
     }
 
     // a deep copy: same name, layers, loss and parameter values, with its own graph built for
-    // batch_size samples at a time. gradients and optimizer state are not copied. to refresh
-    // an existing copy without allocating, use copy_parameters_from()
+    // batch_size samples at a time. gradients and optimizer state are not copied, see
+    // clone_checkpoint() in checkpoint.hpp for that. to refresh an existing copy without
+    // allocating, use copy_parameters_from()
     Model clone(std::size_t batch_size) const {
         if (!built_) {
             throw std::logic_error("[mlfo::model::Model::clone] Model has not been built");
