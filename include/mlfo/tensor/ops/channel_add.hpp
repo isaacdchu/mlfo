@@ -11,7 +11,7 @@
 namespace mlfo::tensor::ops {
 
 // adds a per-channel value to every element of that channel
-// a and out have shape (C, ...), b has shape (C) and batch size 1
+// channels last: a and out have shape (..., C), b has shape (C) and batch size 1
 // e.g. conv2d biases, where each kernel has one bias shared over the output map
 template <misc::Number T>
 struct ChannelAdd : public mlfo::tensor::Operation<T> {
@@ -21,19 +21,15 @@ private:
         const Tensor<T>& a,
         const Tensor<T>& b
     ) {
-        // perform element-wise addition, broadcasting b over each channel
+        // perform element-wise addition, broadcasting b over every position
+        // the channels are contiguous, so a and out are runs of C values each getting b added
         auto& out_values = mlfo::tensor::Operation<T>::values(out);
         const std::size_t channels = b.unbatched_size();
-        const std::size_t channel_size = a.unbatched_size() / channels;
-        for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
-            const std::size_t batch_offset = batch * a.unbatched_size();
+        const std::size_t positions = a.size() / channels;
+        for (std::size_t i = 0; i < positions; i++) {
+            const std::size_t offset = i * channels;
             for (std::size_t c = 0; c < channels; c++) {
-                const std::size_t channel_offset = batch_offset + c * channel_size;
-                for (std::size_t i = 0; i < channel_size; i++) {
-                    out_values[channel_offset + i] = (
-                        a.values()[channel_offset + i] + b.values()[c]
-                    );
-                }
+                out_values[offset + c] = a.values()[offset + c] + b.values()[c];
             }
         }
     }
@@ -48,15 +44,12 @@ private:
         auto& a_gradients = mlfo::tensor::Operation<T>::gradients(a);
         auto& b_gradients = mlfo::tensor::Operation<T>::gradients(b);
         const std::size_t channels = b.unbatched_size();
-        const std::size_t channel_size = a.unbatched_size() / channels;
-        for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
-            const std::size_t batch_offset = batch * a.unbatched_size();
+        const std::size_t positions = a.size() / channels;
+        for (std::size_t i = 0; i < positions; i++) {
+            const std::size_t offset = i * channels;
             for (std::size_t c = 0; c < channels; c++) {
-                const std::size_t channel_offset = batch_offset + c * channel_size;
-                for (std::size_t i = 0; i < channel_size; i++) {
-                    a_gradients[channel_offset + i] += out.gradients()[channel_offset + i];
-                    b_gradients[c] += out.gradients()[channel_offset + i];
-                }
+                a_gradients[offset + c] += out.gradients()[offset + c];
+                b_gradients[c] += out.gradients()[offset + c];
             }
         }
     }
@@ -75,9 +68,9 @@ public:
                 "[tensor::ops::channel_add] Shapes of output tensor and input tensor a must be the same"
             );
         }
-        if (a.shape().empty() || b.shape().size() != 1 || b.shape()[0] != a.shape()[0]) {
+        if (a.shape().empty() || b.shape().size() != 1 || b.shape()[0] != a.shape().back()) {
             throw std::invalid_argument(
-                "[tensor::ops::channel_add] Input tensor b must have shape (C) where C is the first dimension of a"
+                "[tensor::ops::channel_add] Input tensor b must have shape (C) where C is the last dimension of a"
             );
         }
         // out must match a, b is always broadcast over the batch

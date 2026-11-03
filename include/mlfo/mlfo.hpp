@@ -25,6 +25,8 @@
 #include "layer/loss/mse_loss.hpp"
 #include "layer/pool/max_pool.hpp"
 #include "layer/pool/pool_layer.hpp"
+#include "misc/gemm.hpp"
+#include "misc/im2col.hpp"
 #include "misc/serialization.hpp"
 #include "model/checkpoint.hpp"
 #include "model/load.hpp"

@@ -19,11 +19,10 @@
 
 namespace mlfo::layer {
 
-// for simplicity, only 2D convolution with:
-// input tensor of shape = (N, C, H, W)
-// kernel tensor of shape = (K, C, R, S)
-// output tensor of shape = (N, K, P, Q)
-// = (N, K, R, S)
+// for simplicity, only channels last 2D convolution with:
+// input tensor of shape = (N, H, W, C)
+// kernel tensor of shape = (R, S, C, K)
+// output tensor of shape = (N, P, Q, K)
 // no dilation or groups is supported
 template <mlfo::misc::Number T>
 class Conv2DLayer : public mlfo::layer::Layer<T> {
@@ -38,7 +37,7 @@ private:
     std::shared_ptr<const mlfo::initializer::Initializer<T>> weight_initializer_;
     std::shared_ptr<const mlfo::initializer::Initializer<T>> bias_initializer_;
 public:
-    // the input shape (C, H, W) is taken from the input node when built
+    // the input shape (H, W, C) is taken from the input node when built
     Conv2DLayer(
         std::size_t k,
         std::size_t r,
@@ -87,12 +86,12 @@ public:
         const auto& input_shape = input_node.data().shape();
         if (input_shape.size() != 3) {
             throw std::invalid_argument(
-                "[mlfo::layer::Conv2DLayer::build] Input must have shape (C, H, W)"
+                "[mlfo::layer::Conv2DLayer::build] Input must have shape (H, W, C)"
             );
         }
-        const std::size_t c = input_shape[0];
-        const std::size_t h = input_shape[1];
-        const std::size_t w = input_shape[2];
+        const std::size_t h = input_shape[0];
+        const std::size_t w = input_shape[1];
+        const std::size_t c = input_shape[2];
         if (c == 0 || h == 0 || w == 0) {
             throw std::invalid_argument(
                 "[mlfo::layer::Conv2DLayer::build] Input dimensions must be greater than zero"
@@ -107,11 +106,11 @@ public:
         const std::size_t p = (h + 2 * padding_h_ - r_) / stride_h_ + 1;
         const std::size_t q = (w + 2 * padding_w_ - s_) / stride_w_ + 1;
         this->input_shape_ = input_shape;
-        this->output_shape_ = {k_, p, q};
+        this->output_shape_ = {p, q, k_};
         auto& weight_node = graph.add_node(
             mlfo::tensor::Tensor<T>(
                 1,
-                std::vector<std::size_t>{k_, c, r_, s_}
+                std::vector<std::size_t>{r_, s_, c, k_}
             )
         );
         auto& bias_node = graph.add_node(
@@ -198,6 +197,7 @@ public:
     }
 
     // Conv2DLayer, then c,k,r,s,stride_h,stride_w,padding_h,padding_w, then the weights and biases
+    // the weights are written in (R, S, C, K) order
     void serialize(std::ostream& os) const override {
         if (this->parameters_.empty()) {
             throw std::logic_error(
@@ -208,7 +208,7 @@ public:
         mlfo::misc::write_line(
             os,
             std::vector<std::size_t>{
-                this->input_shape_[0], k_, r_, s_, stride_h_, stride_w_, padding_h_, padding_w_
+                this->input_shape_[2], k_, r_, s_, stride_h_, stride_w_, padding_h_, padding_w_
             }
         );
         mlfo::misc::write_line(os, this->parameters_[0].get().values());

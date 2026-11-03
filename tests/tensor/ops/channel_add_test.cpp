@@ -26,17 +26,18 @@ void expect_floats(const std::vector<float>& actual, const std::vector<float>& e
 }
 
 TEST(ChannelAddForward, BroadcastsOverEachChannel) {
+    // channels last, so the channel alternates between consecutive elements
     auto a = make(1, {2, 2, 2}, {1, 2, 3, 4, 5, 6, 7, 8});
     auto b = make(1, {2}, {10, 100});
     Tensor<float> out(1, {2, 2, 2});
     ChannelAdd<float>::call(DIRECTION::FORWARD, out, a, b);
-    expect_floats(out.values(), {11, 12, 13, 14, 105, 106, 107, 108});
+    expect_floats(out.values(), {11, 102, 13, 104, 15, 106, 17, 108});
 }
 
 TEST(ChannelAddForward, BroadcastsOverBatch) {
-    auto a = make(2, {2, 1}, {1, 2, 3, 4});
+    auto a = make(2, {1, 2}, {1, 2, 3, 4});
     auto b = make(1, {2}, {10, 100});
-    Tensor<float> out(2, {2, 1});
+    Tensor<float> out(2, {1, 2});
     ChannelAdd<float>::call(DIRECTION::FORWARD, out, a, b);
     expect_floats(out.values(), {11, 102, 13, 104});
 }
@@ -48,8 +49,8 @@ TEST(ChannelAddBackward, SumsGradientsPerChannel) {
     TensorAccess<float>::gradients(out) = {1, 2, 3, 4, 5, 6, 7, 8};
     ChannelAdd<float>::call(DIRECTION::BACKWARD, out, a, b);
     expect_floats(a.gradients(), {1, 2, 3, 4, 5, 6, 7, 8});
-    // channel 0 gets 1 + 2 + 5 + 6, channel 1 gets 3 + 4 + 7 + 8
-    expect_floats(b.gradients(), {14, 22});
+    // channel 0 gets 1 + 3 + 5 + 7, channel 1 gets 2 + 4 + 6 + 8
+    expect_floats(b.gradients(), {16, 20});
 }
 
 TEST(ChannelAddErrors, ShapeMismatchWithOut) {
@@ -63,6 +64,13 @@ TEST(ChannelAddErrors, BDoesNotMatchChannels) {
     Tensor<float> a(1, {2, 2});
     Tensor<float> b(1, {3});
     Tensor<float> out(1, {2, 2});
+    EXPECT_THROW(ChannelAdd<float>::call(DIRECTION::FORWARD, out, a, b), std::invalid_argument);
+}
+
+TEST(ChannelAddErrors, BMatchesFirstDimensionInsteadOfLast) {
+    Tensor<float> a(1, {2, 3});
+    Tensor<float> b(1, {2});
+    Tensor<float> out(1, {2, 3});
     EXPECT_THROW(ChannelAdd<float>::call(DIRECTION::FORWARD, out, a, b), std::invalid_argument);
 }
 

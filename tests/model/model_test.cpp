@@ -70,19 +70,19 @@ TEST(Model, BuildInfersLayerInputShapes) {
     for (const auto& layer : layers) {
         views.push_back(layer.get());
     }
-    mlfo::model::Model<float> model({2, 8, 8}, std::move(layers));
+    mlfo::model::Model<float> model({8, 8, 2}, std::move(layers));
     model.build();
-    // (2, 8, 8) -> conv (4, 6, 6) -> pool (4, 3, 3) -> flatten (1, 36) -> dense (1, 5)
-    EXPECT_EQ(views[0]->input_shape(), (Shape{2, 8, 8}));
-    EXPECT_EQ(views[1]->input_shape(), (Shape{4, 6, 6}));
-    EXPECT_EQ(views[2]->input_shape(), (Shape{4, 3, 3}));
+    // (8, 8, 2) -> conv (6, 6, 4) -> pool (3, 3, 4) -> flatten (1, 36) -> dense (1, 5)
+    EXPECT_EQ(views[0]->input_shape(), (Shape{8, 8, 2}));
+    EXPECT_EQ(views[1]->input_shape(), (Shape{6, 6, 4}));
+    EXPECT_EQ(views[2]->input_shape(), (Shape{3, 3, 4}));
     EXPECT_EQ(views[3]->input_shape(), (Shape{1, 36}));
     EXPECT_EQ(model.outputs()[0].get().shape(), (Shape{1, 5}));
 }
 
 TEST(Model, BuildRejectsIncompatibleLayers) {
-    // dense needs a (1, n) input, so a (C, H, W) input must be flattened first
-    mlfo::model::Model<float> model({1, 4, 4}, make_layers({2}));
+    // dense needs a (1, n) input, so an (H, W, C) input must be flattened first
+    mlfo::model::Model<float> model({4, 4, 1}, make_layers({2}));
     EXPECT_THROW(model.build(), std::invalid_argument);
 }
 
@@ -324,7 +324,7 @@ TEST(Model, SerializeWritesNameShapeLayersAndLoss) {
     layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(2));
     layers.push_back(std::make_unique<mlfo::layer::activation::SigmoidActivation<float>>());
     mlfo::model::Model<float> model(
-        {1, 2, 2},
+        {2, 2, 1},
         std::move(layers),
         std::make_unique<mlfo::layer::loss::CrossEntropyLoss<float>>()
     );
@@ -342,7 +342,7 @@ TEST(Model, SerializeWritesNameShapeLayersAndLoss) {
     EXPECT_EQ(
         os.str(),
         "net\n"
-        "1,2,2\n"
+        "2,2,1\n"
         "Conv2DLayer\n"
         "1,1,2,2,1,1,0,0\n"
         "0.5,-1,2,0.25\n"
@@ -390,7 +390,7 @@ std::unique_ptr<mlfo::model::Model<float>> make_serializable_model() {
     layers.push_back(std::make_unique<mlfo::layer::activation::TanhActivation<float>>());
     layers.push_back(std::make_unique<mlfo::layer::activation::SigmoidActivation<float>>());
     auto model = std::make_unique<mlfo::model::Model<float>>(
-        Shape{1, 3, 3},
+        Shape{3, 3, 1},
         std::move(layers),
         std::make_unique<mlfo::layer::loss::MSELoss<float>>()
     );

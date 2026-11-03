@@ -209,15 +209,16 @@ int train(int argc, char** argv) {
     auto xavier = std::make_shared<mlfo::initializer::Xavier<std::uniform_real_distribution<float>>>(generator);
     // similar to LeNet, each layer takes its input shape from the layer before it
     std::vector<std::unique_ptr<mlfo::layer::Layer<float>>> layers;
-    // (1, 28, 28) -> (6, 28, 28)
+    // shapes are channels last, (H, W, C)
+    // (28, 28, 1) -> (28, 28, 6)
     layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<float>>(6, 5, 5, 1, 1, 2, 2, he));
     layers.push_back(std::make_unique<mlfo::layer::activation::ReLUActivation<float>>());
-    // -> (6, 14, 14)
+    // -> (14, 14, 6)
     layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<float>>(2, 2));
-    // -> (16, 10, 10)
+    // -> (10, 10, 16)
     layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<float>>(16, 5, 5, 1, 1, 0, 0, he));
     layers.push_back(std::make_unique<mlfo::layer::activation::ReLUActivation<float>>());
-    // -> (16, 5, 5)
+    // -> (5, 5, 16)
     layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<float>>(2, 2));
     // -> (1, 400)
     layers.push_back(std::make_unique<mlfo::layer::FlattenLayer<float>>());
@@ -228,8 +229,8 @@ int train(int argc, char** argv) {
     layers.push_back(std::make_unique<mlfo::layer::DenseLayer<float>>(classes, xavier));
     // the last dense layer outputs logits, softmax is applied inside the loss
     auto loss = std::make_unique<mlfo::layer::loss::CrossEntropyLoss<float>>();
-    // mnist images are single channel 28 x 28
-    auto model = mlfo::model::Model<float>({1, 28, 28}, std::move(layers), std::move(loss), batch_size);
+    // mnist images are single channel 28 x 28, so the pixels are already in (H, W, C) order
+    auto model = mlfo::model::Model<float>({28, 28, 1},std::move(layers), std::move(loss), batch_size);
     model.build();
     auto optim = mlfo::optimizer::SGD<float>(model, learning_rate);
     // the first output is the prediction, the second is the loss, see Model::build()

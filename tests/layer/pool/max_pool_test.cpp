@@ -37,14 +37,15 @@ TEST(MaxPool, RejectsInvalidConstruction) {
 
 TEST(MaxPool, BuildComputesOutputShape) {
     Graph graph;
-    Node& input = graph.add_node(Tensor(3, Shape{2, 5, 4}));
+    // channels last, (h, w, c) = (5, 4, 2)
+    Node& input = graph.add_node(Tensor(3, Shape{5, 4, 2}));
     MaxPool layer(2, 2, 2, 2);
     Node& output = layer.build(graph, input);
     EXPECT_EQ(graph.size(), 2u);
-    EXPECT_EQ(output.data().shape(), (Shape{2, 3, 2}));
+    EXPECT_EQ(output.data().shape(), (Shape{3, 2, 2}));
     EXPECT_EQ(output.data().batch_size(), 3u);
-    EXPECT_EQ(layer.input_shape(), (Shape{2, 5, 4}));
-    EXPECT_EQ(layer.output_shape(), (Shape{2, 3, 2}));
+    EXPECT_EQ(layer.input_shape(), (Shape{5, 4, 2}));
+    EXPECT_EQ(layer.output_shape(), (Shape{3, 2, 2}));
 }
 
 TEST(MaxPool, StrideDefaultsToWindowSize) {
@@ -64,7 +65,7 @@ TEST(MaxPool, BuildRejectsRankOneInput) {
 
 TEST(MaxPool, ForwardAndBackward) {
     Graph graph;
-    Node& input = graph.add_node(Tensor(1, Shape{1, 2, 4}));
+    Node& input = graph.add_node(Tensor(1, Shape{2, 4, 1}));
     MaxPool layer(2, 2, 2, 2);
     Node& output = layer.build(graph, input);
     input.data().set_values({1, 3, 2, 0, 2, 0, 1, 5});

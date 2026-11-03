@@ -129,7 +129,7 @@ TEST(GradientCheck, Conv2D) {
     layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<double>>(3, 3, 3));
     layers.push_back(std::make_unique<mlfo::layer::FlattenLayer<double>>());
     layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(2));
-    check_gradients(std::move(layers), {2, 5, 5}, 2);
+    check_gradients(std::move(layers), {5, 5, 2}, 2);
 }
 
 TEST(GradientCheck, Conv2DPaddingAndStride) {
@@ -138,7 +138,7 @@ TEST(GradientCheck, Conv2DPaddingAndStride) {
     layers.push_back(std::make_unique<mlfo::layer::Conv2DLayer<double>>(2, 3, 3, 2, 2, 1, 1));
     layers.push_back(std::make_unique<mlfo::layer::FlattenLayer<double>>());
     layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(2));
-    check_gradients(std::move(layers), {2, 5, 5}, 2);
+    check_gradients(std::move(layers), {5, 5, 2}, 2);
 }
 
 TEST(GradientCheck, Conv2DMaxPool) {
@@ -147,7 +147,7 @@ TEST(GradientCheck, Conv2DMaxPool) {
     layers.push_back(std::make_unique<mlfo::layer::pool::MaxPool<double>>(2, 2));
     layers.push_back(std::make_unique<mlfo::layer::FlattenLayer<double>>());
     layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(2));
-    check_gradients(std::move(layers), {1, 6, 6}, 2);
+    check_gradients(std::move(layers), {6, 6, 1}, 2);
 }
 
 TEST(GradientCheck, LeNetLike) {
@@ -163,5 +163,5 @@ TEST(GradientCheck, LeNetLike) {
     layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(4));
     layers.push_back(std::make_unique<mlfo::layer::activation::SigmoidActivation<double>>());
     layers.push_back(std::make_unique<mlfo::layer::DenseLayer<double>>(3));
-    check_gradients(std::move(layers), {1, 8, 8}, 3);
+    check_gradients(std::move(layers), {8, 8, 1}, 3);
 }

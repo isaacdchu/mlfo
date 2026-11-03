@@ -1,11 +1,13 @@
 #ifndef MLFO_MUL_HPP
 #define MLFO_MUL_HPP
 
+#include <algorithm>
 #include <concepts>
 #include <memory>
 #include <vector>
 
 #include "../../misc/concepts.hpp"
+#include "../../misc/gemm.hpp"
 #include "../tensor.hpp"
 
 namespace mlfo::tensor::ops {
@@ -21,27 +23,26 @@ private:
         // out = a * b, with a (m, n), b (n, p), out (m, p) for each batch
         // b is broadcast if its batch size is 1
         auto& out_values = mlfo::tensor::Operation<T>::values(out);
+        std::fill(out_values.begin(), out_values.end(), T{0});
         const std::size_t m = a.shape()[0];
         const std::size_t n = a.shape()[1];
         const std::size_t p = b.shape()[1];
+        if (b.batch_size() == 1) {
+            // the batches of a and out are stacked rows, so a shared b makes the batch one gemm
+            // (batch * m, n) * (n, p) = (batch * m, p)
+            misc::gemm_nn(
+                a.batch_size() * m, p, n,
+                a.values().data(), b.values().data(), out_values.data()
+            );
+            return;
+        }
         for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
-            const std::size_t a_batch_offset = batch * a.unbatched_size();
-            const std::size_t b_batch_offset = (
-                b.batch_size() == 1
-            ) ? 0 : batch * b.unbatched_size();
-            const std::size_t out_batch_offset = batch * out.unbatched_size();
-            for (std::size_t i = 0; i < m; i++) {
-                for (std::size_t j = 0; j < p; j++) {
-                    T sum = 0;
-                    for (std::size_t k = 0; k < n; k++) {
-                        sum += (
-                            a.values()[a_batch_offset + i * n + k] *
-                            b.values()[b_batch_offset + k * p + j]
-                        );
-                    }
-                    out_values[out_batch_offset + i * p + j] = sum;
-                }
-            }
+            misc::gemm_nn(
+                m, p, n,
+                a.values().data() + batch * a.unbatched_size(),
+                b.values().data() + batch * b.unbatched_size(),
+                out_values.data() + batch * out.unbatched_size()
+            );
         }
     }
 
@@ -58,25 +59,36 @@ private:
         const std::size_t m = a.shape()[0];
         const std::size_t n = a.shape()[1];
         const std::size_t p = b.shape()[1];
+        if (b.batch_size() == 1) {
+            // as in the forward pass, the batch is folded into the rows
+            // the gemm for b.gradients then also sums them over the batch
+            const std::size_t rows = a.batch_size() * m;
+            // (rows, p) * (n, p)^T = (rows, n)
+            misc::gemm_nt(
+                rows, n, p,
+                out.gradients().data(), b.values().data(), a_gradients.data()
+            );
+            // (rows, n)^T * (rows, p) = (n, p)
+            misc::gemm_tn(
+                n, p, rows,
+                a.values().data(), out.gradients().data(), b_gradients.data()
+            );
+            return;
+        }
         for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
-            const std::size_t a_batch_offset = batch * a.unbatched_size();
-            const std::size_t b_batch_offset = (
-                b.batch_size() == 1
-            ) ? 0 : batch * b.unbatched_size();
-            const std::size_t out_batch_offset = batch * out.unbatched_size();
-            for (std::size_t i = 0; i < m; i++) {
-                for (std::size_t j = 0; j < p; j++) {
-                    const T out_gradient = out.gradients()[out_batch_offset + i * p + j];
-                    for (std::size_t k = 0; k < n; k++) {
-                        a_gradients[a_batch_offset + i * n + k] += (
-                            out_gradient * b.values()[b_batch_offset + k * p + j]
-                        );
-                        b_gradients[b_batch_offset + k * p + j] += (
-                            a.values()[a_batch_offset + i * n + k] * out_gradient
-                        );
-                    }
-                }
-            }
+            const T* out_gradients = out.gradients().data() + batch * out.unbatched_size();
+            misc::gemm_nt(
+                m, n, p,
+                out_gradients,
+                b.values().data() + batch * b.unbatched_size(),
+                a_gradients.data() + batch * a.unbatched_size()
+            );
+            misc::gemm_tn(
+                n, p, m,
+                a.values().data() + batch * a.unbatched_size(),
+                out_gradients,
+                b_gradients.data() + batch * b.unbatched_size()
+            );
         }
     }
 

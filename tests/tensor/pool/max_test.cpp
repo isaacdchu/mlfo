@@ -72,11 +72,21 @@ TEST(MaxForward, PartialWindowsOnlyUseValidElements) {
 }
 
 TEST(MaxForward, ChannelsAndBatches) {
-    // 2 batches of 2 channels of 2x2, pooled to 1x1
-    auto a = make(2, {2, 2, 2}, {1, 2, 3, 4, 8, 7, 6, 5, -1, -2, -3, -4, 0, 9, 0, 0});
-    Tensor<float> out(2, {2, 1, 1});
+    // 2 batches of 2x2 with 2 channels, pooled to 1x1
+    // channels last, so each pair of values is one position
+    auto a = make(2, {2, 2, 2}, {1, 8, 2, 7, 3, 6, 4, 5, -1, 0, -2, 9, -3, 0, -4, 0});
+    Tensor<float> out(2, {1, 1, 2});
     Max<float>::call(DIRECTION::FORWARD, out, a, 2, 2, 2, 2);
     expect_floats(out.values(), {4, 8, -1, 9});
+}
+
+TEST(MaxBackward, RoutesGradientPerChannel) {
+    auto a = make(1, {2, 2, 2}, {1, 8, 2, 7, 3, 6, 4, 5});
+    Tensor<float> out(1, {1, 1, 2});
+    TensorAccess<float>::gradients(out) = {10, 20};
+    Max<float>::call(DIRECTION::BACKWARD, out, a, 2, 2, 2, 2);
+    // channel 0's max is 4 at (1, 1), channel 1's max is 8 at (0, 0)
+    expect_floats(a.gradients(), {0, 20, 0, 0, 0, 0, 10, 0});
 }
 
 TEST(MaxForward, OneByOneWindowWithStrideSubsamples) {
@@ -148,8 +158,8 @@ TEST(MaxCall, RejectsWrongOutputShape) {
 }
 
 TEST(MaxCall, RejectsChannelMismatch) {
-    Tensor<float> a(1, {2, 4, 4});
-    Tensor<float> out(1, {3, 2, 2});
+    Tensor<float> a(1, {4, 4, 2});
+    Tensor<float> out(1, {2, 2, 3});
     EXPECT_THROW(Max<float>::call(DIRECTION::FORWARD, out, a, 2, 2, 2, 2), std::invalid_argument);
 }
 

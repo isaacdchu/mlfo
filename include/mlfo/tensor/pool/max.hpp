@@ -11,15 +11,19 @@
 
 namespace mlfo::tensor::pool {
 
+// channels last max pooling
+// a has shape (H, W, ...), out has shape (P, Q, ...)
+// every dimension after the first 2 is treated as a channel, so (H, W) is a single channel
 template <misc::Number T>
 struct Max : public mlfo::tensor::Operation<T> {
 private:
-    // flat index (within one batch) of the max element of the window that produces out[ci, pi, qi]
+    // flat index (within one batch) of the max element of the window that produces out[pi, qi, ci]
     // if pooling window goes out of bounds, only consider the valid elements
     // ties go to the first element in row-major order
     static inline std::size_t argmax(
         const Tensor<T>& a,
         std::size_t a_batch_offset,
+        std::size_t c,
         std::size_t ci,
         std::size_t pi,
         std::size_t qi,
@@ -28,16 +32,16 @@ private:
         std::size_t stride_h,
         std::size_t stride_w
     ) {
-        const std::size_t h = a.shape()[a.rank() - 2];
-        const std::size_t w = a.shape()[a.rank() - 1];
+        const std::size_t h = a.shape()[0];
+        const std::size_t w = a.shape()[1];
         const std::size_t h_start = pi * stride_h;
         const std::size_t w_start = qi * stride_w;
         const std::size_t h_end = std::min(h_start + r, h);
         const std::size_t w_end = std::min(w_start + s, w);
-        std::size_t best = (ci * h + h_start) * w + w_start;
+        std::size_t best = (h_start * w + w_start) * c + ci;
         for (std::size_t hi = h_start; hi < h_end; hi++) {
             for (std::size_t wi = w_start; wi < w_end; wi++) {
-                const std::size_t index = (ci * h + hi) * w + wi;
+                const std::size_t index = (hi * w + wi) * c + ci;
                 if (a.values()[a_batch_offset + index] > a.values()[a_batch_offset + best]) {
                     best = index;
                 }
@@ -54,22 +58,21 @@ private:
         std::size_t stride_h,
         std::size_t stride_w
     ) {
-        // out[..., p, q] = max over the window a[..., p * stride_h + [0, r), q * stride_w + [0, s)]
-        // every dimension before the last 2 is treated as a channel
+        // out[p, q, ...] = max over the window a[p * stride_h + [0, r), q * stride_w + [0, s), ...]
         auto& out_values = mlfo::tensor::Operation<T>::values(out);
-        const std::size_t p = out.shape()[out.rank() - 2];
-        const std::size_t q = out.shape()[out.rank() - 1];
+        const std::size_t p = out.shape()[0];
+        const std::size_t q = out.shape()[1];
         const std::size_t c = out.unbatched_size() / (p * q);
         for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
             const std::size_t a_batch_offset = batch * a.unbatched_size();
             const std::size_t out_batch_offset = batch * out.unbatched_size();
-            for (std::size_t ci = 0; ci < c; ci++) {
-                for (std::size_t pi = 0; pi < p; pi++) {
-                    for (std::size_t qi = 0; qi < q; qi++) {
+            for (std::size_t pi = 0; pi < p; pi++) {
+                for (std::size_t qi = 0; qi < q; qi++) {
+                    for (std::size_t ci = 0; ci < c; ci++) {
                         const std::size_t best = argmax(
-                            a, a_batch_offset, ci, pi, qi, r, s, stride_h, stride_w
+                            a, a_batch_offset, c, ci, pi, qi, r, s, stride_h, stride_w
                         );
-                        out_values[out_batch_offset + (ci * p + pi) * q + qi] = (
+                        out_values[out_batch_offset + (pi * q + qi) * c + ci] = (
                             a.values()[a_batch_offset + best]
                         );
                     }
@@ -90,20 +93,20 @@ private:
         // dL/da = dL/dout for the max element of each window, 0 for the rest
         // overlapping windows accumulate into the same element
         auto& a_gradients = mlfo::tensor::Operation<T>::gradients(a);
-        const std::size_t p = out.shape()[out.rank() - 2];
-        const std::size_t q = out.shape()[out.rank() - 1];
+        const std::size_t p = out.shape()[0];
+        const std::size_t q = out.shape()[1];
         const std::size_t c = out.unbatched_size() / (p * q);
         for (std::size_t batch = 0; batch < a.batch_size(); batch++) {
             const std::size_t a_batch_offset = batch * a.unbatched_size();
             const std::size_t out_batch_offset = batch * out.unbatched_size();
-            for (std::size_t ci = 0; ci < c; ci++) {
-                for (std::size_t pi = 0; pi < p; pi++) {
-                    for (std::size_t qi = 0; qi < q; qi++) {
+            for (std::size_t pi = 0; pi < p; pi++) {
+                for (std::size_t qi = 0; qi < q; qi++) {
+                    for (std::size_t ci = 0; ci < c; ci++) {
                         const std::size_t best = argmax(
-                            a, a_batch_offset, ci, pi, qi, r, s, stride_h, stride_w
+                            a, a_batch_offset, c, ci, pi, qi, r, s, stride_h, stride_w
                         );
                         a_gradients[a_batch_offset + best] += (
-                            out.gradients()[out_batch_offset + (ci * p + pi) * q + qi]
+                            out.gradients()[out_batch_offset + (pi * q + qi) * c + ci]
                         );
                     }
                 }
@@ -136,8 +139,8 @@ public:
         std::size_t stride_h,
         std::size_t stride_w
     ) {
-        // a: (N, ..., H, W)
-        // out: (N, ..., P, Q)
+        // a: (N, H, W, ...)
+        // out: (N, P, Q, ...)
         // check that the batch sizes of a and out are compatible
         if (a.batch_size() != out.batch_size()) {
             throw std::invalid_argument(
@@ -164,14 +167,14 @@ public:
                 "[tensor::pool::max] Ranks of input and output tensors must match"
             );
         }
-        if (!std::equal(a.shape().begin(), a.shape().end() - 2, out.shape().begin())) {
+        if (!std::equal(a.shape().begin() + 2, a.shape().end(), out.shape().begin() + 2)) {
             throw std::invalid_argument(
-                "[tensor::pool::max] Dimensions before the last 2 must match between input and output"
+                "[tensor::pool::max] Dimensions after the first 2 must match between input and output"
             );
         }
         if (
-            out.shape()[out.rank() - 2] != output_size(a.shape()[a.rank() - 2], r, stride_h) ||
-            out.shape()[out.rank() - 1] != output_size(a.shape()[a.rank() - 1], s, stride_w)
+            out.shape()[0] != output_size(a.shape()[0], r, stride_h) ||
+            out.shape()[1] != output_size(a.shape()[1], s, stride_w)
         ) {
             throw std::invalid_argument(
                 "[tensor::pool::max] Output height and width do not match the pooling parameters"

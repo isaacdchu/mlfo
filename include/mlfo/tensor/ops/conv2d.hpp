@@ -1,20 +1,38 @@
 #ifndef MLFO_CONV2D_HPP
 #define MLFO_CONV2D_HPP
 
+#include <algorithm>
 #include <concepts>
 #include <memory>
 #include <vector>
 
 #include "../../misc/concepts.hpp"
+#include "../../misc/gemm.hpp"
+#include "../../misc/im2col.hpp"
 #include "../tensor.hpp"
 
 namespace mlfo::tensor::ops {
 
+// channels last 2D convolution, computed as an explicit gemm (im2col -> matmul)
+// input (H, W, C), kernel (R, S, C, K), output (P, Q, K)
+// the kernel reshapes to (R * S * C, K) for free, and the column matrix of the whole batch is
+// (N * P * Q, R * S * C), so with a broadcast kernel the batch is a single gemm whose
+// (N * P * Q, K) result is already the output layout
 template <misc::Number T>
 struct Conv2D : public mlfo::tensor::Operation<T> {
 private:
-    static inline void conv2d_forward(
-        Tensor<T>& out,
+    // column matrix scratch space, reused across calls so they don't allocate
+    // it only grows, to the largest column matrix this thread has needed
+    static std::vector<T>& scratch(std::size_t size) {
+        thread_local std::vector<T> buffer;
+        if (buffer.size() < size) {
+            buffer.resize(size);
+        }
+        return buffer;
+    }
+
+    static misc::Conv2DGeometry geometry(
+        const Tensor<T>& out,
         const Tensor<T>& input,
         const Tensor<T>& kernel,
         std::size_t stride_h,
@@ -22,57 +40,67 @@ private:
         std::size_t padding_h,
         std::size_t padding_w
     ) {
-        auto& out_values = mlfo::tensor::Operation<T>::values(out);
-        const std::size_t c = input.shape()[0];
-        const std::size_t h = input.shape()[1];
-        const std::size_t w = input.shape()[2];
-        const std::size_t k = kernel.shape()[0];
-        const std::size_t r = kernel.shape()[2];
-        const std::size_t s = kernel.shape()[3];
-        const std::size_t p = out.shape()[1];
-        const std::size_t q = out.shape()[2];
-        // out[n, k, p, q] = sum over c, r, s of
-        // input[n, c, p * stride_h + r - padding_h, q * stride_w + s - padding_w] * kernel[k, c, r, s]
-        // positions that fall in the padding contribute zero
-        // kernel is broadcast if its batch size is 1
+        return {
+            .h = input.shape()[0],
+            .w = input.shape()[1],
+            .c = input.shape()[2],
+            .r = kernel.shape()[0],
+            .s = kernel.shape()[1],
+            .p = out.shape()[0],
+            .q = out.shape()[1],
+            .stride_h = stride_h,
+            .stride_w = stride_w,
+            .padding_h = padding_h,
+            .padding_w = padding_w
+        };
+    }
+
+    // the column matrix of the whole batch, (N * P * Q, R * S * C)
+    // a 1x1 kernel with stride 1 and no padding reads the input as is, so no copy is made
+    static const T* lower(const misc::Conv2DGeometry& g, const Tensor<T>& input) {
+        if (g.is_pointwise()) {
+            return input.values().data();
+        }
+        const std::size_t col_size = g.positions() * g.patch_size();
+        T* col = scratch(input.batch_size() * col_size).data();
         for (std::size_t batch = 0; batch < input.batch_size(); batch++) {
-            const std::size_t input_batch_offset = batch * input.unbatched_size();
-            const std::size_t kernel_batch_offset = (
-                kernel.batch_size() == 1
-            ) ? 0 : batch * kernel.unbatched_size();
-            const std::size_t out_batch_offset = batch * out.unbatched_size();
-            for (std::size_t ki = 0; ki < k; ki++) {
-                for (std::size_t pi = 0; pi < p; pi++) {
-                    for (std::size_t qi = 0; qi < q; qi++) {
-                        T sum = 0;
-                        for (std::size_t ci = 0; ci < c; ci++) {
-                            for (std::size_t ri = 0; ri < r; ri++) {
-                                // row in the padded input, skip if it is in the padding
-                                const std::size_t hi = pi * stride_h + ri;
-                                if (hi < padding_h || hi - padding_h >= h) {
-                                    continue;
-                                }
-                                for (std::size_t si = 0; si < s; si++) {
-                                    const std::size_t wi = qi * stride_w + si;
-                                    if (wi < padding_w || wi - padding_w >= w) {
-                                        continue;
-                                    }
-                                    sum += (
-                                        input.values()[
-                                            input_batch_offset +
-                                            (ci * h + (hi - padding_h)) * w + (wi - padding_w)
-                                        ] *
-                                        kernel.values()[
-                                            kernel_batch_offset + ((ki * c + ci) * r + ri) * s + si
-                                        ]
-                                    );
-                                }
-                            }
-                        }
-                        out_values[out_batch_offset + (ki * p + pi) * q + qi] = sum;
-                    }
-                }
-            }
+            misc::im2col(
+                g,
+                input.values().data() + batch * input.unbatched_size(),
+                col + batch * col_size
+            );
+        }
+        return col;
+    }
+
+    static inline void conv2d_forward(
+        Tensor<T>& out,
+        const Tensor<T>& input,
+        const Tensor<T>& kernel,
+        const misc::Conv2DGeometry& g
+    ) {
+        // out (N * P * Q, K) = col (N * P * Q, R * S * C) * kernel (R * S * C, K)
+        auto& out_values = mlfo::tensor::Operation<T>::values(out);
+        std::fill(out_values.begin(), out_values.end(), T{0});
+        const std::size_t k = kernel.shape()[3];
+        const std::size_t positions = g.positions();
+        const std::size_t patch = g.patch_size();
+        const T* col = lower(g, input);
+        if (kernel.batch_size() == 1) {
+            // every sample shares the kernel, so the batch folds into the rows of one gemm
+            misc::gemm_nn(
+                input.batch_size() * positions, k, patch,
+                col, kernel.values().data(), out_values.data()
+            );
+            return;
+        }
+        for (std::size_t batch = 0; batch < input.batch_size(); batch++) {
+            misc::gemm_nn(
+                positions, k, patch,
+                col + batch * positions * patch,
+                kernel.values().data() + batch * kernel.unbatched_size(),
+                out_values.data() + batch * out.unbatched_size()
+            );
         }
     }
 
@@ -80,70 +108,83 @@ private:
         const Tensor<T>& out,
         Tensor<T>& input,
         Tensor<T>& kernel,
-        std::size_t stride_h,
-        std::size_t stride_w,
-        std::size_t padding_h,
-        std::size_t padding_w
+        const misc::Conv2DGeometry& g
     ) {
-        auto& input_values = mlfo::tensor::Operation<T>::values(input);
-        auto& kernel_values = mlfo::tensor::Operation<T>::values(kernel);
+        // kernel.gradients (R * S * C, K) += col^T * out.gradients (N * P * Q, K)
+        // col.gradients (N * P * Q, R * S * C) = out.gradients * kernel^T, then col2im adds them
+        // back into input.gradients
+        // if kernel is broadcast, the gemm over the folded batch sums its gradients over the batch
         auto& input_gradients = mlfo::tensor::Operation<T>::gradients(input);
         auto& kernel_gradients = mlfo::tensor::Operation<T>::gradients(kernel);
-        const std::size_t c = input.shape()[0];
-        const std::size_t h = input.shape()[1];
-        const std::size_t w = input.shape()[2];
-        const std::size_t k = kernel.shape()[0];
-        const std::size_t r = kernel.shape()[2];
-        const std::size_t s = kernel.shape()[3];
-        const std::size_t p = out.shape()[1];
-        const std::size_t q = out.shape()[2];
-        // input.gradients[n, c, h, w] += out.gradients[n, k, p, q] * kernel[k, c, r, s]
-        // kernel.gradients[k, c, r, s] += out.gradients[n, k, p, q] * input[n, c, h, w]
-        // for every (p, q, r, s) with h = p * stride_h + r - padding_h, w = q * stride_w + s - padding_w
-        // if kernel is broadcast, its gradients accumulate over the batch
-        for (std::size_t batch = 0; batch < input.batch_size(); batch++) {
-            const std::size_t input_batch_offset = batch * input.unbatched_size();
-            const std::size_t kernel_batch_offset = (
-                kernel.batch_size() == 1
-            ) ? 0 : batch * kernel.unbatched_size();
-            const std::size_t out_batch_offset = batch * out.unbatched_size();
-            for (std::size_t ki = 0; ki < k; ki++) {
-                for (std::size_t pi = 0; pi < p; pi++) {
-                    for (std::size_t qi = 0; qi < q; qi++) {
-                        const T out_gradient = out.gradients()[
-                            out_batch_offset + (ki * p + pi) * q + qi
-                        ];
-                        for (std::size_t ci = 0; ci < c; ci++) {
-                            for (std::size_t ri = 0; ri < r; ri++) {
-                                // row in the padded input, skip if it is in the padding
-                                const std::size_t hi = pi * stride_h + ri;
-                                if (hi < padding_h || hi - padding_h >= h) {
-                                    continue;
-                                }
-                                for (std::size_t si = 0; si < s; si++) {
-                                    const std::size_t wi = qi * stride_w + si;
-                                    if (wi < padding_w || wi - padding_w >= w) {
-                                        continue;
-                                    }
-                                    const std::size_t input_index = (
-                                        input_batch_offset +
-                                        (ci * h + (hi - padding_h)) * w + (wi - padding_w)
-                                    );
-                                    const std::size_t kernel_index = (
-                                        kernel_batch_offset + ((ki * c + ci) * r + ri) * s + si
-                                    );
-                                    input_gradients[input_index] += (
-                                        out_gradient * kernel_values[kernel_index]
-                                    );
-                                    kernel_gradients[kernel_index] += (
-                                        out_gradient * input_values[input_index]
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
+        const std::size_t k = kernel.shape()[3];
+        const std::size_t positions = g.positions();
+        const std::size_t patch = g.patch_size();
+        const std::size_t batches = input.batch_size();
+        const bool broadcast = kernel.batch_size() == 1;
+        const T* out_gradients = out.gradients().data();
+        const T* kernel_values = kernel.values().data();
+        // the column matrix is recomputed rather than kept from the forward pass, as the scratch
+        // space is shared by every convolution
+        const T* col = lower(g, input);
+        if (broadcast) {
+            misc::gemm_tn(
+                patch, k, batches * positions,
+                col, out_gradients, kernel_gradients.data()
+            );
+        } else {
+            for (std::size_t batch = 0; batch < batches; batch++) {
+                misc::gemm_tn(
+                    patch, k, positions,
+                    col + batch * positions * patch,
+                    out_gradients + batch * out.unbatched_size(),
+                    kernel_gradients.data() + batch * kernel.unbatched_size()
+                );
             }
+        }
+        if (g.is_pointwise()) {
+            // the column matrix is the input, so its gradients go straight into the input's
+            if (broadcast) {
+                misc::gemm_nt(
+                    batches * positions, patch, k,
+                    out_gradients, kernel_values, input_gradients.data()
+                );
+                return;
+            }
+            for (std::size_t batch = 0; batch < batches; batch++) {
+                misc::gemm_nt(
+                    positions, patch, k,
+                    out_gradients + batch * out.unbatched_size(),
+                    kernel_values + batch * kernel.unbatched_size(),
+                    input_gradients.data() + batch * input.unbatched_size()
+                );
+            }
+            return;
+        }
+        // the column matrix is no longer needed, so its scratch space holds its gradients instead
+        const std::size_t col_size = positions * patch;
+        T* col_gradients = scratch(batches * col_size).data();
+        std::fill(col_gradients, col_gradients + batches * col_size, T{0});
+        if (broadcast) {
+            misc::gemm_nt(
+                batches * positions, patch, k,
+                out_gradients, kernel_values, col_gradients
+            );
+        } else {
+            for (std::size_t batch = 0; batch < batches; batch++) {
+                misc::gemm_nt(
+                    positions, patch, k,
+                    out_gradients + batch * out.unbatched_size(),
+                    kernel_values + batch * kernel.unbatched_size(),
+                    col_gradients + batch * col_size
+                );
+            }
+        }
+        for (std::size_t batch = 0; batch < batches; batch++) {
+            misc::col2im(
+                g,
+                col_gradients + batch * col_size,
+                input_gradients.data() + batch * input.unbatched_size()
+            );
         }
     }
 
@@ -159,9 +200,9 @@ public:
         std::size_t padding_h,
         std::size_t padding_w
     ) {
-        // input: (N, C, H, W)
-        // kernel: (K, C, R, S), can be broadcasted if its batch size is 1
-        // output: (N, K, P, Q)
+        // input: (N, H, W, C)
+        // kernel: (R, S, C, K), can be broadcasted if its batch size is 1
+        // output: (N, P, Q, K)
         // verify input shapes and parameters
         if (input.rank() != 3) {
             throw std::invalid_argument(
@@ -183,27 +224,27 @@ public:
                 "[tensor::ops::conv2d] Stride must be greater than zero"
             );
         }
-        if (input.shape()[0] != kernel.shape()[1]) {
+        if (input.shape()[2] != kernel.shape()[2]) {
             throw std::invalid_argument(
                 "[tensor::ops::conv2d] Input channels must match kernel channels"
             );
         }
-        if (out.shape()[0] != kernel.shape()[0]) {
+        if (out.shape()[2] != kernel.shape()[3]) {
             throw std::invalid_argument(
                 "[tensor::ops::conv2d] Output channels must match number of kernels"
             );
         }
         if (
-            input.shape()[1] + 2 * padding_h < kernel.shape()[2] ||
-            input.shape()[2] + 2 * padding_w < kernel.shape()[3]
+            input.shape()[0] + 2 * padding_h < kernel.shape()[0] ||
+            input.shape()[1] + 2 * padding_w < kernel.shape()[1]
         ) {
             throw std::invalid_argument(
                 "[tensor::ops::conv2d] Kernel size must be less than or equal to input size + 2 * padding"
             );
         }
         if (
-            out.shape()[1] != (input.shape()[1] + 2 * padding_h - kernel.shape()[2]) / stride_h + 1 ||
-            out.shape()[2] != (input.shape()[2] + 2 * padding_w - kernel.shape()[3]) / stride_w + 1
+            out.shape()[0] != (input.shape()[0] + 2 * padding_h - kernel.shape()[0]) / stride_h + 1 ||
+            out.shape()[1] != (input.shape()[1] + 2 * padding_w - kernel.shape()[1]) / stride_w + 1
         ) {
             throw std::invalid_argument(
                 "[tensor::ops::conv2d] Output height and width do not match the convolution parameters"
@@ -219,28 +260,15 @@ public:
                 "[tensor::ops::conv2d] Kernel batch size must match input batch size or be 1"
             );
         }
+        const misc::Conv2DGeometry g = geometry(
+            out, input, kernel, stride_h, stride_w, padding_h, padding_w
+        );
         switch (direction) {
             case DIRECTION::FORWARD:
-                conv2d_forward(
-                    out,
-                    input,
-                    kernel,
-                    stride_h,
-                    stride_w,
-                    padding_h,
-                    padding_w
-                );
+                conv2d_forward(out, input, kernel, g);
                 return;
             case DIRECTION::BACKWARD:
-                conv2d_backward(
-                    out,
-                    input,
-                    kernel,
-                    stride_h,
-                    stride_w,
-                    padding_h,
-                    padding_w
-                );
+                conv2d_backward(out, input, kernel, g);
                 return;
             default:
                 throw std::invalid_argument(

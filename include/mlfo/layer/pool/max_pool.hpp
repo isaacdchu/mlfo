@@ -28,7 +28,8 @@ private:
     std::size_t stride_h_;
     std::size_t stride_w_;
 public:
-    // the input dimensions (h, w) are taken from the last 2 dims of the input node when built
+    // channels last, the input dimensions (h, w) are taken from the first 2 dims of the input node
+    // when built, any dims after them are channels
     MaxPool(
         std::size_t r,
         std::size_t s,
@@ -60,15 +61,15 @@ public:
         mlfo::graph::Graph<mlfo::tensor::Tensor<T>>& graph,
         mlfo::graph::Node<mlfo::tensor::Tensor<T>>& input_node
     ) override {
-        // input tensor must have h and w as last 2 dims
+        // input tensor must have h and w as first 2 dims
         const auto& input_shape = input_node.data().shape();
         if (input_shape.size() < 2) {
             throw std::invalid_argument(
                 "[layer::pool::max] Input must have at least 2 dimensions"
             );
         }
-        const std::size_t h = input_shape[input_shape.size() - 2];
-        const std::size_t w = input_shape[input_shape.size() - 1];
+        const std::size_t h = input_shape[0];
+        const std::size_t w = input_shape[1];
         if (h == 0 || w == 0) {
             throw std::invalid_argument(
                 "[layer::pool::max] Input dimensions must be greater than 0"
@@ -76,10 +77,10 @@ public:
         }
         this->input_shape_ = input_shape;
         this->output_shape_ = input_shape;
-        this->output_shape_[this->output_shape_.size() - 2] = (
+        this->output_shape_[0] = (
             mlfo::tensor::pool::Max<T>::output_size(h, this->r_, this->stride_h_)
         );
-        this->output_shape_[this->output_shape_.size() - 1] = (
+        this->output_shape_[1] = (
             mlfo::tensor::pool::Max<T>::output_size(w, this->s_, this->stride_w_)
         );
         auto& output_node = graph.add_node(
