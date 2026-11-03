@@ -28,6 +28,7 @@
 #include "misc/serialization.hpp"
 #include "model/load.hpp"
 #include "model/model.hpp"
+#include "optimizer/adam.hpp"
 #include "optimizer/optimizer.hpp"
 #include "optimizer/sgd.hpp"
 #include "tensor/activation.hpp"
